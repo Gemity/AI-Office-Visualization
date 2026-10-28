@@ -10,9 +10,18 @@ _keys = itertools.count()
 
 
 @pytest.fixture
-def client(tmp_path):
-    app = create_app(Settings(database_url=f"sqlite+aiosqlite:///{tmp_path}/test.db"))
-    with TestClient(app) as c:
+def settings(tmp_path) -> Settings:
+    return Settings(
+        database_url=f"sqlite+aiosqlite:///{tmp_path}/test.db",
+        data_dir=str(tmp_path / "data"),
+        retry_backoff_s=0.05,
+        dispatch_interval_s=0.05,
+    )
+
+
+@pytest.fixture
+def client(settings):
+    with TestClient(create_app(settings)) as c:
         yield c
 
 

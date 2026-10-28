@@ -38,3 +38,9 @@ Spec §18 để mở lựa chọn UI base ("fork Pixel Office sau khi kiểm tra
 
 - Không có asset/scene/script Unity trong repo.
 - Phải theo dõi thay đổi upstream của Pixel Office và ghi lại các điểm đã sửa so với bản gốc.
+
+## Phục vụ frontend (chốt 2026-10-28)
+
+- Khi chạy local, FastAPI phục vụ luôn `apps/web/` dưới dạng static files tại `/` (mount sau cùng nên các route API luôn được ưu tiên). Một tiến trình, một cổng, không có CORS.
+- Đổi thư mục bằng `OFFICE_WEB_DIR`; đặt rỗng để tắt (ví dụ khi sau này deploy frontend riêng).
+- `index.html` của upstream đang nạp `/i18n.js` (do server Node sinh ra) — sẽ 404 cho tới khi frontend được nối với API mới.

@@ -1,5 +1,9 @@
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
+
+# apps/api/src/office_api/config.py -> apps/web
+_DEFAULT_WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
 
 @dataclass(frozen=True)
@@ -12,3 +16,16 @@ class Settings:
     )
     # Max events buffered per WebSocket subscriber before it is told to resync.
     stream_queue_size: int = 1000
+    # Frontend served at "/" for local runs; empty string disables it.
+    web_dir: str = field(
+        default_factory=lambda: os.environ.get("OFFICE_WEB_DIR", str(_DEFAULT_WEB_DIR))
+    )
+    # Content store (content_ref) and per-task agent workspaces.
+    data_dir: str = field(default_factory=lambda: os.environ.get("OFFICE_DATA_DIR", "./data"))
+
+    # --- runtime ---
+    max_parallel_runs: int = 5  # per project (NFR: >= 5 concurrent workers)
+    run_timeout_s: float = 1800
+    retry_backoff_s: float = 5.0  # delay before attempt n+1 = backoff * 2**(n-1)
+    max_turn_attempts: int = 3  # orchestrator turns
+    dispatch_interval_s: float = 1.0  # dispatcher also wakes immediately on changes

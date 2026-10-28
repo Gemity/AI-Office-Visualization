@@ -122,6 +122,41 @@
     },
     "limits": {
       "$ref": "#/$defs/InvocationLimits"
+    },
+    "workdir": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Directory the agent may write to; its new files are artifacts.",
+      "title": "Workdir"
+    },
+    "read_dirs": {
+      "description": "Extra directories the agent may read.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Read Dirs",
+      "type": "array"
+    },
+    "output_schema": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "JSON Schema the final output must match (structured output).",
+      "title": "Output Schema"
     }
   },
   "required": [

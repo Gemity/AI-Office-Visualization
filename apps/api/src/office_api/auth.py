@@ -83,3 +83,13 @@ async def get_membership(
 
 
 Membership = Annotated[ProjectMember, Depends(get_membership)]
+
+
+async def require_owner(member: Membership) -> ProjectMember:
+    """Write access inside a project; observers are read-only."""
+    if member.role != "owner":
+        raise ApiError(403, "forbidden", "Owner role required")
+    return member
+
+
+OwnerMembership = Annotated[ProjectMember, Depends(require_owner)]

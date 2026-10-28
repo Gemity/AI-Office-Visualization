@@ -26,6 +26,48 @@
       "title": "AgentError",
       "type": "object"
     },
+    "AgentResult": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "description": "Final answer / summary produced by the agent.",
+          "title": "Text",
+          "type": "string"
+        },
+        "structured": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parsed output when AgentInvocation.output_schema was set.",
+          "title": "Structured"
+        },
+        "cost_usd": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost Usd"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "AgentResult",
+      "type": "object"
+    },
     "RunState": {
       "enum": [
         "queued",
@@ -85,6 +127,18 @@
         }
       ],
       "default": null
+    },
+    "result": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentResult"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set when state is succeeded."
     },
     "observed_at": {
       "format": "date-time",

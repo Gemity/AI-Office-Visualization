@@ -128,6 +128,7 @@ class AgentDefinition(Base):
     provider: Mapped[str] = mapped_column(String(64))
     adapter_type: Mapped[str] = mapped_column(String(64))
     capability_manifest: Mapped[dict[str, Any]]
+    config: Mapped[dict[str, Any]] = mapped_column(default=dict)  # non-secret adapter config
     config_ref: Mapped[str | None] = mapped_column(String(500))  # secret-vault reference
     created_at: Mapped[datetime] = _created_at()
 
@@ -183,11 +184,13 @@ class Conversation(Base):
     type: Mapped[str] = mapped_column(String(32))
     visibility: Mapped[str] = mapped_column(String(32))
     status: Mapped[str] = mapped_column(String(32), default="open")
+    task_id: Mapped[str | None] = mapped_column(ID)  # for type='task_thread'
     created_by: Mapped[str] = mapped_column(ID)  # agent or principal id
     created_at: Mapped[datetime] = _created_at()
 
     __table_args__ = (
         UniqueConstraint("project_id", "id"),
+        ForeignKeyConstraint(["project_id", "task_id"], ["tasks.project_id", "tasks.id"]),
         CheckConstraint("type IN ('owner_chat', 'group_meeting', 'dm', 'task_thread')"),
         CheckConstraint("visibility IN ('project', 'participants')"),
         Index("ix_conversations_project_created", "project_id", "created_at"),
@@ -230,16 +233,35 @@ class Message(Base):
 
 
 class Task(Base):
+    """``kind='plan'`` is the root of one Orchestrator plan (never dispatched; it
+    finishes when all its children are terminal). ``kind='work'`` tasks are
+    dispatched to workers.
+
+    Status flow: waiting (deps unmet) → pending (ready; ``retry_at`` delays a
+    retry) → active (run in progress) → completed | failed; a task whose
+    dependency failed, or for which no capable worker exists, is blocked.
+    """
+
     __tablename__ = "tasks"
 
     id: Mapped[str] = _pk()
     project_id: Mapped[str] = _project_fk()
     parent_id: Mapped[str | None] = mapped_column(ID)
+    kind: Mapped[str] = mapped_column(String(16), default="work")
     title: Mapped[str] = mapped_column(String(500))
+    description: Mapped[str] = mapped_column(Text, default="")
+    required_capabilities: Mapped[list[str]] = mapped_column(default=list)
+    assignee_hint: Mapped[str | None] = mapped_column(ID)
     assignee_id: Mapped[str | None] = mapped_column(ID)
     status: Mapped[str] = mapped_column(String(32), default="pending")
+    blocked_reason: Mapped[str | None] = mapped_column(String(200))
     priority: Mapped[int] = mapped_column(Integer, default=0)
     deadline: Mapped[datetime | None]
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    retry_at: Mapped[datetime | None]
+    result_ref: Mapped[str | None] = mapped_column(String(500))
+    trace_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -250,6 +272,7 @@ class Task(Base):
             "status IN ('pending', 'waiting', 'active', 'blocked', 'completed', 'failed',"
             " 'cancelled')"
         ),
+        CheckConstraint("kind IN ('plan', 'work')"),
         Index("ix_tasks_project_created", "project_id", "created_at"),
         Index("ix_tasks_project_status", "project_id", "status"),
     )
@@ -330,7 +353,11 @@ class AgentRun(Base):
 
     id: Mapped[str] = _pk()
     project_id: Mapped[str] = _project_fk()
-    task_id: Mapped[str | None] = mapped_column(ID)
+    task_id: Mapped[str | None] = mapped_column(ID)  # None for orchestrator turns
+    purpose: Mapped[str] = mapped_column(String(32), default="task")
+    trigger: Mapped[
+        dict[str, Any] | None
+    ]  # orchestrator turn input, e.g. {"kind": "owner_message"}
     agent_id: Mapped[str] = mapped_column(ID)
     adapter: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32))  # office_contracts.RunState
@@ -338,8 +365,11 @@ class AgentRun(Base):
     idempotency_key: Mapped[str] = mapped_column(String(200))
     provider_ref: Mapped[str | None] = mapped_column(String(200))
     trace_id: Mapped[str] = mapped_column(String(64))
-    cost: Mapped[float | None] = mapped_column(Numeric(12, 6))
+    cost: Mapped[float | None] = mapped_column(Numeric(12, 6, asdecimal=False))
     error: Mapped[dict[str, Any] | None]
+    output_ref: Mapped[str | None] = mapped_column(String(500))
+    started_at: Mapped[datetime | None]
+    finished_at: Mapped[datetime | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
@@ -349,6 +379,7 @@ class AgentRun(Base):
         ForeignKeyConstraint(["project_id", "task_id"], ["tasks.project_id", "tasks.id"]),
         Index("ix_agent_runs_project_created", "project_id", "created_at"),
         Index("ix_agent_runs_project_status", "project_id", "status"),
+        CheckConstraint("purpose IN ('task', 'orchestrator_turn')"),
     )
 
 

@@ -15,7 +15,9 @@ Nguyên tắc: **One Project → One Active Orchestrator → Many Workers → On
 
 Dự án dùng cá nhân, phi thương mại.
 
-**Phase 0 xong** (ADR-0002): contracts, DB schema, project-scoped auth, prototype event stream (`POST/GET /projects`, `GET /projects/{id}/events`, `WS /projects/{id}/stream`). Frontend `apps/web/` vẫn là bản fork nguyên trạng, chưa nối với API mới. Tiếp theo: Phase 1 (Orchestrator chat, task runtime, Claude/Codex adapters).
+**Phase 0 xong** (ADR-0002): contracts, DB schema, project-scoped auth, event stream.
+**Phase 1 xong** (ADR-0003): agent registry, Owner ↔ Orchestrator chat, task runtime trên DB (DAG, dispatch theo capability, song song, retry, khôi phục), adapter `claude-agent-sdk` / `codex-cli` / `mock` — đã chạy thật với Claude + Codex.
+Frontend `apps/web/` vẫn là bản fork nguyên trạng, chưa nối với API mới. Tiếp theo: Phase 2 (meeting/DM hub, 2D Office nối event stream, timeline, replay, interventions).
 
 ## Lệnh
 
@@ -28,20 +30,33 @@ uv run pytest apps/api/tests/test_events.py::test_stream_replays_then_pushes_liv
 uv run ruff check . && uv run ruff format .   # lint + format
 uv run python scripts/gen_contracts.py        # sinh lại JSON Schema + openapi.json (bắt buộc khi đổi model/API)
 uv run office-api create-owner --name "Tên"   # tạo principal, in token (chỉ hiện một lần)
-uv run office-api serve --port 8000           # chạy API; DB: OFFICE_DATABASE_URL (mặc định sqlite ./office.db)
+uv run office-api serve --port 8000           # chạy API + UI tại http://127.0.0.1:8000/
+                                              # env: OFFICE_DATABASE_URL (mặc định sqlite ./office.db), OFFICE_WEB_DIR (mặc định apps/web, rỗng = tắt),
+                                              #      OFFICE_DATA_DIR (mặc định ./data: content store + workspace của agent)
 ```
+
+Schema vẫn tạo bằng `create_all` (chưa có Alembic): đổi model ⇒ xóa `office.db` dev cũ.
+Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent SDK) và `codex`. Test chỉ dùng mock/fake, không gọi provider thật.
 
 ## Cấu trúc backend hiện có
 
 - `packages/contracts/src/office_contracts/` — Pydantic models là **nguồn gốc** của contract (`events.py`: Event envelope + EventType; `adapter.py`: CapabilityManifest, AgentInvocation, AgentStatus, ...). `schemas/*.json` và `openapi.json` là file **sinh ra**, không sửa tay; `test_generated_contracts_are_up_to_date` fail nếu cũ.
-- `packages/agent-adapters/src/agent_adapters/base.py` — `AgentAdapter` Protocol + `SupportsCancel/SupportsEvents/SupportsArtifacts`.
+- `packages/agent-adapters/src/agent_adapters/`:
+  - `base.py` — `AgentAdapter` Protocol + `SupportsCancel/SupportsEvents/SupportsArtifacts`.
+  - `runner.py` — `TaskBackedAdapter`: nền chung (idempotent invoke, cancel requested→confirmed, phát lại event, quét artifact trong workdir). Adapter mới chỉ cần `describe_capabilities()` + `_execute(ctx)`.
+  - `claude_sdk.py`, `codex_cli.py`, `mock.py`; `registry.py` (`create_adapter`). Gọi không có `workdir` ⇒ không cho ghi file.
 - `apps/api/src/office_api/`:
   - `models.py` — toàn bộ schema §9. Tham chiếu giữa bảng project-scoped dùng composite FK `(project_id, x_id)`; BR-01 là unique partial index. Không có ORM relationship ⇒ phải `flush()` row cha trước khi thêm row con.
   - `auth.py` — `Membership` dependency là cách duy nhất để vào route `/projects/{project_id}/...`; không phải thành viên → 404.
   - `events.py` — `append_event()` trong transaction rồi `commit_and_publish()`; không publish trước commit, không tự tính sequence.
   - `idempotency.py`, `errors.py` — `Idempotency-Key` bắt buộc cho write; error envelope + `X-Request-ID`.
-  - `routes/` — projects, events (REST replay + WebSocket).
-- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`.
+  - `runtime.py` — `Runtime`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
+  - `orchestrator.py` — prompt + schema `OrchestratorOutput` (structured output) + `validate_plan`.
+  - `storage.py` — content store `obj://` (nội dung tin nhắn/kết quả) và đường dẫn workspace.
+  - `routes/` — projects, events (REST replay + WebSocket), agents (`/adapters`, `/projects/{id}/agents`), orchestrator (`POST .../orchestrator/messages` → 202), work (tasks, conversations, messages, artifacts).
+  - `auth.py` — write trong project dùng `OwnerMembership` (observer chỉ đọc → 403).
+  - `main.py` — mount `apps/web/` làm static tại `/` **sau cùng**; route API mới phải khai báo trước mount.
+- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`.
 
 Đã chốt (xem `docs/adr/0001-web-stack-fork-pixel-office.md`):
 - **Toàn bộ là web**, không dùng Unity (dù repo nằm trong thư mục `UnityProject/`). Không tạo asset/scene/script Unity.

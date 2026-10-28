@@ -91,6 +91,15 @@ class AgentInvocation(_Model):
     parameters: dict[str, Any] = Field(default_factory=dict)
     permissions: list[str] = Field(default_factory=list)
     limits: InvocationLimits = Field(default_factory=InvocationLimits)
+    workdir: str | None = Field(
+        default=None, description="Directory the agent may write to; its new files are artifacts."
+    )
+    read_dirs: list[str] = Field(
+        default_factory=list, description="Extra directories the agent may read."
+    )
+    output_schema: dict[str, Any] | None = Field(
+        default=None, description="JSON Schema the final output must match (structured output)."
+    )
 
 
 class RunState(StrEnum):
@@ -118,6 +127,14 @@ class AgentError(_Model):
     retryable: bool = False
 
 
+class AgentResult(_Model):
+    text: str = Field(description="Final answer / summary produced by the agent.")
+    structured: dict[str, Any] | None = Field(
+        default=None, description="Parsed output when AgentInvocation.output_schema was set."
+    )
+    cost_usd: float | None = Field(default=None, ge=0)
+
+
 class AgentStatus(_Model):
     model_config = ConfigDict(title="AgentStatus")
 
@@ -126,6 +143,7 @@ class AgentStatus(_Model):
     progress: float | None = Field(default=None, ge=0, le=1)
     message: str | None = None
     error: AgentError | None = None
+    result: AgentResult | None = Field(default=None, description="Set when state is succeeded.")
     observed_at: datetime
 
 

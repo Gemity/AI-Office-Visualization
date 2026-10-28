@@ -53,8 +53,10 @@ class Base(DeclarativeBase):
 
 
 def create_engine(url: str) -> AsyncEngine:
-    engine = create_async_engine(url)
-    if engine.dialect.name == "sqlite":
+    sqlite = url.startswith("sqlite")
+    # Background runs write concurrently; let SQLite wait for the lock instead of failing.
+    engine = create_async_engine(url, connect_args={"timeout": 30} if sqlite else {})
+    if sqlite:
 
         @event.listens_for(engine.sync_engine, "connect")
         def _enable_fk(dbapi_conn, _record):
