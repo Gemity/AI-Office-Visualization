@@ -28,4 +28,5 @@ class Settings:
     run_timeout_s: float = 1800
     retry_backoff_s: float = 5.0  # delay before attempt n+1 = backoff * 2**(n-1)
     max_turn_attempts: int = 3  # orchestrator turns
+    conversation_time_limit_s: float = 900  # whole meeting / dm
     dispatch_interval_s: float = 1.0  # dispatcher also wakes immediately on changes

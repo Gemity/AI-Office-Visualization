@@ -17,7 +17,8 @@ Dự án dùng cá nhân, phi thương mại.
 
 **Phase 0 xong** (ADR-0002): contracts, DB schema, project-scoped auth, event stream.
 **Phase 1 xong** (ADR-0003): agent registry, Owner ↔ Orchestrator chat, task runtime trên DB (DAG, dispatch theo capability, song song, retry, khôi phục), adapter `claude-agent-sdk` / `codex-cli` / `mock` — đã chạy thật với Claude + Codex.
-Frontend `apps/web/` vẫn là bản fork nguyên trạng, chưa nối với API mới. Tiếp theo: Phase 2 (meeting/DM hub, 2D Office nối event stream, timeline, replay, interventions).
+**Phase 2 xong** (ADR-0004): meeting/DM là task (`kind meeting|dm`, hub có moderator, biên bản, decision, action item), interventions (pause/resume/cancel/redirect, `requested → applied|rejected`), lọc timeline. UI mới `apps/web/index.html` + `po-app.js` là projection từ REST + WebSocket trên renderer Pixel Office (`observeOnly`).
+Tiếp theo: Phase 3 (adapter async mock Suno/Tripo, artifact, approval BR-07, metrics).
 
 ## Lệnh
 
@@ -50,13 +51,16 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
   - `auth.py` — `Membership` dependency là cách duy nhất để vào route `/projects/{project_id}/...`; không phải thành viên → 404.
   - `events.py` — `append_event()` trong transaction rồi `commit_and_publish()`; không publish trước commit, không tự tính sequence.
   - `idempotency.py`, `errors.py` — `Idempotency-Key` bắt buộc cho write; error envelope + `X-Request-ID`.
-  - `runtime.py` — `Runtime`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
+  - `hub.py` — `ConversationMixin`: chạy meeting/DM theo lượt (`conversation_turn`), moderator = Orchestrator active, biên bản → `decision.recorded` + action item thành task mới.
+  - `interventions.py` — `InterventionMixin`: can thiệp chỉ `applied` khi runtime thấy run đã dừng thật; pause/resume không kèm task = cấp project.
+  - `runtime.py` — `Runtime(ConversationMixin, InterventionMixin)`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
   - `orchestrator.py` — prompt + schema `OrchestratorOutput` (structured output) + `validate_plan`.
   - `storage.py` — content store `obj://` (nội dung tin nhắn/kết quả) và đường dẫn workspace.
-  - `routes/` — projects, events (REST replay + WebSocket), agents (`/adapters`, `/projects/{id}/agents`), orchestrator (`POST .../orchestrator/messages` → 202), work (tasks, conversations, messages, artifacts).
+  - `routes/` — projects, events (REST replay có lọc `type`/`task_id`/`actor_id`/`conversation_id` + WebSocket), agents (`/adapters`, `/projects/{id}/agents`), orchestrator (`POST .../orchestrator/messages` → 202), work (tasks, conversations, messages, meetings, artifacts), interventions (`POST/GET .../interventions` → 202).
   - `auth.py` — write trong project dùng `OwnerMembership` (observer chỉ đọc → 403).
   - `main.py` — mount `apps/web/` làm static tại `/` **sau cùng**; route API mới phải khai báo trước mount.
-- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`.
+- `apps/web/` — `index.html` + `po-app.js` + `po.css` là UI của dự án; `layout.js`/`office.js`/`style.css`/asset từ upstream (sửa gì ghi vào `UPSTREAM.md`). Office không được tự sinh hoạt động: chỉ `setStatus`/`speak`/`setMeeting` từ dữ liệu API/event.
+- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`, `test_phase2.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`.
 
 Đã chốt (xem `docs/adr/0001-web-stack-fork-pixel-office.md`):
 - **Toàn bộ là web**, không dùng Unity (dù repo nằm trong thư mục `UnityProject/`). Không tạo asset/scene/script Unity.

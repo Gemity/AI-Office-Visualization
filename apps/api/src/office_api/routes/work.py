@@ -1,5 +1,6 @@
-"""Read models for the task board, conversations and artifacts (spec §11-12)."""
+"""Read models for the task board, conversations, meetings and artifacts (spec §11-12)."""
 
+import json
 from datetime import datetime
 from typing import Annotated
 
@@ -14,6 +15,7 @@ from office_api.models import (
     Artifact,
     Conversation,
     ConversationParticipant,
+    Meeting,
     Message,
     Task,
     TaskDependency,
@@ -37,6 +39,7 @@ class RunOut(BaseModel):
 class TaskOut(BaseModel):
     id: str
     kind: str
+    participants: list[str]
     parent_id: str | None
     title: str
     description: str
@@ -113,6 +116,7 @@ async def list_tasks(
         TaskOut(
             id=t.id,
             kind=t.kind,
+            participants=t.participants,
             parent_id=t.parent_id,
             title=t.title,
             description=t.description,
@@ -225,4 +229,69 @@ async def list_artifacts(project_id: str, member: Membership, session: Session):
             created_at=a.created_at,
         )
         for a in rows
+    ]
+
+
+class MeetingOut(BaseModel):
+    id: str
+    task_id: str | None
+    conversation_id: str
+    title: str | None
+    agenda: str
+    moderator_id: str
+    participants: list[str]
+    status: str
+    outcome: str | None
+    turn_limit: int | None
+    minutes: str | None
+    decisions: list[str]
+    live: bool
+    created_at: datetime
+    closed_at: datetime | None
+
+
+@router.get("/meetings", response_model=list[MeetingOut])
+async def list_meetings(project_id: str, request: Request, member: Membership, session: Session):
+    meetings = (
+        await session.scalars(
+            select(Meeting).where(Meeting.project_id == project_id).order_by(Meeting.created_at)
+        )
+    ).all()
+    parts = (
+        await session.execute(
+            select(ConversationParticipant.conversation_id, ConversationParticipant.agent_id).where(
+                ConversationParticipant.conversation_id.in_([m.conversation_id for m in meetings]),
+                ConversationParticipant.role != "moderator",
+            )
+        )
+    ).all()
+    titles = dict(
+        (
+            await session.execute(
+                select(Task.id, Task.title).where(
+                    Task.id.in_([m.task_id for m in meetings if m.task_id])
+                )
+            )
+        ).all()
+    )
+    store = request.app.state.runtime.store
+    return [
+        MeetingOut(
+            id=m.id,
+            task_id=m.task_id,
+            conversation_id=m.conversation_id,
+            title=titles.get(m.task_id),
+            agenda=m.agenda,
+            moderator_id=m.moderator_id,
+            participants=[a for cid, a in parts if cid == m.conversation_id],
+            status=m.status,
+            outcome=m.outcome,
+            turn_limit=m.turn_limit,
+            minutes=store.get_text(m.minutes_ref),
+            decisions=json.loads(store.get_text(m.decisions_ref) or "[]"),
+            live=m.status != "closed",
+            created_at=m.created_at,
+            closed_at=m.closed_at,
+        )
+        for m in meetings
     ]

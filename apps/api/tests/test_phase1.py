@@ -30,20 +30,28 @@ def wait_until(fn, timeout=10.0, interval=0.05):
         time.sleep(interval)
 
 
-def task(key_, title, caps, deps=(), assignee=None):
+def task(key_, title, caps, deps=(), assignee=None, type_="work", participants=None, turns=None):
     return {
         "key": key_,
+        "type": type_,
         "title": title,
         "instructions": f"do {title}",
         "capabilities": caps,
         "depends_on": list(deps),
         "assignee_id": assignee,
+        "participants": participants,
+        "turn_limit": turns,
     }
 
 
-def plan(reply, tasks=(), title="Plan"):
+def plan(reply, tasks=(), title="Plan", interventions=()):
     return {
-        "structured": {"reply": reply, "plan_title": title if tasks else None, "tasks": list(tasks)}
+        "structured": {
+            "reply": reply,
+            "plan_title": title if tasks else None,
+            "tasks": list(tasks),
+            "interventions": list(interventions),
+        }
     }
 
 

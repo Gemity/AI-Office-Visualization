@@ -235,11 +235,13 @@ class Message(Base):
 class Task(Base):
     """``kind='plan'`` is the root of one Orchestrator plan (never dispatched; it
     finishes when all its children are terminal). ``kind='work'`` tasks are
-    dispatched to workers.
+    dispatched to workers; ``kind='meeting'`` / ``'dm'`` tasks run a conversation
+    between ``participants`` (spec §8.2).
 
     Status flow: waiting (deps unmet) → pending (ready; ``retry_at`` delays a
     retry) → active (run in progress) → completed | failed; a task whose
     dependency failed, or for which no capable worker exists, is blocked.
+    Owner interventions add paused (resumable) and cancelled.
     """
 
     __tablename__ = "tasks"
@@ -251,6 +253,8 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str] = mapped_column(Text, default="")
     required_capabilities: Mapped[list[str]] = mapped_column(default=list)
+    participants: Mapped[list[str]] = mapped_column(default=list)  # meeting / dm agent ids
+    turn_limit: Mapped[int | None] = mapped_column(Integer)
     assignee_hint: Mapped[str | None] = mapped_column(ID)
     assignee_id: Mapped[str | None] = mapped_column(ID)
     status: Mapped[str] = mapped_column(String(32), default="pending")
@@ -269,10 +273,10 @@ class Task(Base):
         UniqueConstraint("project_id", "id"),
         ForeignKeyConstraint(["project_id", "parent_id"], ["tasks.project_id", "tasks.id"]),
         CheckConstraint(
-            "status IN ('pending', 'waiting', 'active', 'blocked', 'completed', 'failed',"
-            " 'cancelled')"
+            "status IN ('pending', 'waiting', 'active', 'paused', 'blocked', 'completed',"
+            " 'failed', 'cancelled')"
         ),
-        CheckConstraint("kind IN ('plan', 'work')"),
+        CheckConstraint("kind IN ('plan', 'work', 'meeting', 'dm')"),
         Index("ix_tasks_project_created", "project_id", "created_at"),
         Index("ix_tasks_project_status", "project_id", "status"),
     )
@@ -303,6 +307,7 @@ class Meeting(Base):
     id: Mapped[str] = _pk()
     project_id: Mapped[str] = _project_fk()
     conversation_id: Mapped[str] = mapped_column(ID)
+    task_id: Mapped[str | None] = mapped_column(ID)
     agenda: Mapped[str] = mapped_column(Text)
     moderator_id: Mapped[str] = mapped_column(ID)
     status: Mapped[str] = mapped_column(String(32), default="proposed")
@@ -311,12 +316,15 @@ class Meeting(Base):
     token_budget: Mapped[int | None] = mapped_column(Integer)
     minutes_ref: Mapped[str | None] = mapped_column(String(500))
     decisions_ref: Mapped[str | None] = mapped_column(String(500))
+    outcome: Mapped[str | None] = mapped_column(String(16))  # completed | failed | cancelled
     created_at: Mapped[datetime] = _created_at()
+    closed_at: Mapped[datetime | None]
 
     __table_args__ = (
         ForeignKeyConstraint(
             ["project_id", "conversation_id"], ["conversations.project_id", "conversations.id"]
         ),
+        ForeignKeyConstraint(["project_id", "task_id"], ["tasks.project_id", "tasks.id"]),
         CheckConstraint(
             "status IN ('proposed', 'scheduled', 'active', 'decision_recorded',"
             " 'action_items_created', 'closed')"
@@ -379,7 +387,7 @@ class AgentRun(Base):
         ForeignKeyConstraint(["project_id", "task_id"], ["tasks.project_id", "tasks.id"]),
         Index("ix_agent_runs_project_created", "project_id", "created_at"),
         Index("ix_agent_runs_project_status", "project_id", "status"),
-        CheckConstraint("purpose IN ('task', 'orchestrator_turn')"),
+        CheckConstraint("purpose IN ('task', 'orchestrator_turn', 'conversation_turn')"),
     )
 
 
@@ -423,6 +431,34 @@ class Approval(Base):
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'approved', 'rejected', 'expired')"),
         Index("ix_approvals_project_status", "project_id", "status"),
+    )
+
+
+class Intervention(Base):
+    """Owner (or Orchestrator on the Owner's behalf) control request (spec §8.3).
+
+    ``requested`` until the runtime has observed the effect (BR-06, AC-06), then
+    ``applied``; ``rejected`` when it cannot apply (e.g. task already finished).
+    """
+
+    __tablename__ = "interventions"
+
+    id: Mapped[str] = _pk()
+    project_id: Mapped[str] = _project_fk()
+    task_id: Mapped[str | None] = mapped_column(ID)  # None = whole project
+    action: Mapped[str] = mapped_column(String(16))
+    instructions: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="requested")
+    outcome: Mapped[str | None] = mapped_column(String(500))
+    requested_by: Mapped[str] = mapped_column(ID)
+    created_at: Mapped[datetime] = _created_at()
+    resolved_at: Mapped[datetime | None]
+
+    __table_args__ = (
+        ForeignKeyConstraint(["project_id", "task_id"], ["tasks.project_id", "tasks.id"]),
+        CheckConstraint("action IN ('pause', 'resume', 'cancel', 'redirect')"),
+        CheckConstraint("status IN ('requested', 'applied', 'rejected')"),
+        Index("ix_interventions_project_status", "project_id", "status"),
     )
 
 

@@ -82,6 +82,10 @@ class Office {
     this.freeSeats = new Set(); // seat tiles of desks nobody sits at
     this.rosterIds = [];
     this.editing = false;
+    // AI Project Office: observation surface only (BR-09, AC-05). When true, nobody
+    // starts invented chats/office events/comforting, and balloons only show real
+    // message text passed to speak().
+    this.observeOnly = false;
     this.theme = "default";
     this.particles = [];
     this.last = performance.now();
@@ -733,7 +737,13 @@ Object.assign(Office.prototype, {
     return options[options.length - 1];
   },
 
-  say(e, text, ms) { if (text) e.say = { text, until: performance.now() + (ms || lifeMs(text)) }; },
+  say(e, text, ms) { if (text && !this.observeOnly) e.say = { text, until: performance.now() + (ms || lifeMs(text)) }; },
+
+  // A real message from agent `id` (AI Project Office): shown even in observe-only mode.
+  speak(id, text, ms) {
+    const e = this.emps.find((x) => x.id === id);
+    if (e && text) e.say = { text, until: performance.now() + (ms || Math.min(9000, lifeMs(text))) };
+  },
 
   // Laugh for `ms` with a fade in / out. Poses differ for standing and seated people; `v` forces a variant.
   startLaugh(e, now, ms, o = {}) {
@@ -764,6 +774,7 @@ Object.assign(Office.prototype, {
 
   // Two idle colleagues who end up near each other stop for a standing chat.
   updateLife(now) {
+    if (this.observeOnly) return; // no invented agent-to-agent chats
     if (now - (this.lifeCheck || 0) < 350) return;
     this.lifeCheck = now;
     const ready = this.emps.filter((e) => this.chatReady(e, now));
@@ -1015,6 +1026,7 @@ Object.assign(Office.prototype, {
 
   // A task failed: the nearest idle colleague walks over and puts a hand on the shoulder.
   comfort(e, now) {
+    if (this.observeOnly) return; // nobody walks over unless an event says so
     let best = null, bd = 1e9;
     for (const o of this.emps) {
       if (o === e || o.status !== "idle" || o.meet || o.entering || o.act || o.errand || o.path.length || o.sipping) continue;
@@ -3924,6 +3936,7 @@ Object.assign(Office.prototype, {
   },
 
   tickEvents(now) {
+    if (this.observeOnly) return; // no invented office events
     if (this.evNext == null) this.evNext = now + rand(3 * 60000, 8 * 60000);
     if (this.evt) {
       if (now > this.evt.until || !officeEventsOn()) this.endEvent(now);

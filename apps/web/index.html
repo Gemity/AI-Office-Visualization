@@ -1,372 +1,103 @@
 <!doctype html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pixel Office</title>
+  <title>AI Project Office</title>
+  <link rel="icon" href="data:," />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Silkscreen&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
-  <link rel="stylesheet" href="panels.css" />
-  <link rel="stylesheet" href="shop.css" />
-  <link rel="stylesheet" href="integrations.css" />
-  <link rel="stylesheet" href="drawer.css" />
-  <link rel="stylesheet" href="boardui.css" />
-  <link rel="stylesheet" href="select.css" />
+  <link rel="stylesheet" href="po.css" />
+  <script>
+    // Room names for the renderer. No ui.life strings: the office never invents speech.
+    window.PO = { locale: "vi", strings: { rooms: { kitchen: "BẾP", office: "KHU LÀM VIỆC", meeting: "PHÒNG HỌP", lounge: "PHÒNG NGHỈ", archive: "LƯU TRỮ" }, ui: {} } };
+  </script>
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">
-      <span class="brand-dot"></span>
-      <span class="brand-name" data-i18n="ui.brand">OFFICE</span>
-    </div>
-    <nav class="offices" id="offices" hidden></nav>
-    <div class="strip" id="strip">
-      <button class="strip-chip" id="stripMode" type="button" hidden data-i18n-title="ui.strip.modeTip"></button>
-      <button class="strip-chip" id="stripSpend" type="button" hidden></button>
-      <button class="strip-chip" id="stripQuota" type="button" hidden></button>
-      <button class="strip-chip" id="stripProgress" type="button" hidden data-i18n-title="ui.progress.chipTip"></button>
-      <button class="strip-chip" id="stripCoins" type="button" hidden></button>
-      <button class="icon-btn small strip-btn" id="btnInbox" type="button" data-i18n-title="ui.strip.inboxTip">📥<span class="badge" id="inboxBadge" hidden></span></button>
-      <button class="icon-btn small strip-btn" id="btnActivity" type="button" data-i18n-title="ui.strip.activityTip">🕘<i class="strip-dot" id="activityDot" hidden></i></button>
-    </div>
-    <div class="tools">
-      <div class="menu" id="toolsMenu">
-        <button class="btn small" id="btnTools" type="button" aria-haspopup="true" aria-expanded="false"><span>🧰</span> <span data-i18n="ui.tools.button"></span> <span class="menu-caret">▾</span></button>
-        <div class="menu-pop" id="toolsPop" role="menu" hidden>
-          <button class="menu-item" id="btnLayout" type="button" role="menuitem"><span class="mi-i">✏️</span><span class="mi-t"><b data-i18n="ui.tools.layout"></b><small data-i18n="ui.tools.layoutSub"></small></span></button>
-          <button class="menu-item" id="btnShop" type="button" role="menuitem"><span class="mi-i">🛒</span><span class="mi-t"><b data-i18n="ui.tools.shop"></b><small data-i18n="ui.tools.shopSub"></small></span></button>
-          <button class="menu-item" id="btnIntegrations" type="button" role="menuitem"><span class="mi-i">🔌</span><span class="mi-t"><b data-i18n="ui.tools.integrations"></b><small data-i18n="ui.tools.integrationsSub"></small></span></button>
-          <button class="menu-item" id="btnSkills" type="button" role="menuitem"><span class="mi-i">🧩</span><span class="mi-t"><b data-i18n="ui.tools.skills"></b><small data-i18n="ui.tools.skillsSub"></small></span></button>
-          <div class="legend" id="legend">
-            <span class="legend-item" data-i18n-tip="ui.legend.idle"><i class="dot idle"></i><span data-i18n="ui.legend.idle"></span></span>
-            <span class="legend-item" data-i18n-tip="ui.legend.working"><i class="dot working"></i><span data-i18n="ui.legend.working"></span></span>
-            <span class="legend-item" data-i18n-tip="ui.legend.waiting"><i class="dot waiting"></i><span data-i18n="ui.legend.waiting"></span></span>
-            <span class="legend-item" data-i18n-tip="ui.legend.error"><i class="dot error"></i><span data-i18n="ui.legend.error"></span></span>
-            <span class="legend-item" data-i18n-tip="ui.legend.sick"><i class="dot sick"></i><span data-i18n="ui.legend.sick"></span></span>
-          </div>
-        </div>
-      </div>
-      <button class="icon-btn small" id="btnGuide" type="button" data-i18n-title="ui.guide.btn" data-i18n-aria="ui.guide.btn">?</button>
-      <button class="icon-btn small" id="btnSettings" type="button" data-i18n-title="ui.settings.btn">⚙</button>
-    </div>
-    <button class="btn small" id="btnBoard" data-i18n-title="ui.board.buttonTip"><span>📋</span> <span data-i18n="ui.board.button"></span><span class="badge" id="boardBadge" hidden></span></button>
-    <button class="btn small" id="btnMeeting" data-i18n-title="ui.meeting.buttonTip"><span>👥</span> <span data-i18n="ui.meeting.button"></span></button>
-    <a class="btn primary small" id="hireLink" href="hire.html" data-i18n="ui.hireButton">+ Hire</a>
-    <div class="clock" id="clock">--:--</div>
+    <div class="brand"><span class="brand-dot"></span><span class="brand-name">AI PROJECT OFFICE</span></div>
+    <select id="projectSelect" class="po-select" aria-label="Project"></select>
+    <button id="newProject" class="po-btn" type="button">+ Project</button>
+    <span id="connPill" class="po-pill off">offline</span>
+    <button id="projectPause" class="po-btn" type="button" hidden></button>
+    <div class="tools"><button id="logout" class="po-btn ghost" type="button">Đăng xuất</button></div>
   </header>
 
-  <main class="stage">
-    <div class="offline-banner" data-i18n="ui.offlineBanner"></div>
-    <div class="office-wrap" id="officeWrap">
-      <canvas id="office"></canvas>
-      <div class="labels" id="labels"></div>
-    </div>
-    <div class="roster" id="roster"></div>
-    <div class="away-card" id="awayCard" hidden></div>
-  </main>
+  <div class="po-main">
+    <main class="stage">
+      <div class="office-wrap"><canvas id="office"></canvas><div class="labels" id="labels"></div></div>
+      <div class="roster" id="roster"></div>
+      <p class="po-note" id="officeNote"></p>
+    </main>
 
-  <aside class="chat" id="chat">
-    <div class="chat-resize" id="chatResize" title="⇔"></div>
-    <div class="chat-head">
-      <a class="chat-avatar" id="chatAvatar" href="#" data-i18n-title="ui.chat.profile"></a>
-      <div class="chat-title">
-        <div class="chat-name"><span id="chatName">—</span><span class="model-badge" id="chatModel"></span></div>
-        <div class="chat-role"><span id="chatRole">—</span><span class="chip" id="chatStatus"></span><span class="task-badge" id="chatTask" hidden></span></div>
-      </div>
-      <a class="icon-btn" id="btnProfile" href="#" data-i18n-title="ui.chat.profile">☰</a>
-      <button class="icon-btn" id="btnCure" hidden data-i18n-title="ui.chat.cure">💊</button>
-      <button class="icon-btn" id="btnStop" data-i18n-title="ui.chat.stop">■</button>
-      <button class="icon-btn" id="btnReset" data-i18n-title="ui.chat.reset">⟲</button>
-      <button class="icon-btn" id="btnClose" data-i18n-title="ui.chat.close">×</button>
-    </div>
-    <div class="chat-body" id="chatBody"></div>
-    <button class="jump-down" id="jumpDown" hidden data-i18n="ui.chat.newMessages"></button>
-    <div class="idea-ctx" id="ideaCtx" hidden role="group" data-i18n-aria="ui.chat.ideaCtxGroup"><span id="ideaCtxLabel"></span><button type="button" id="ideaCtxBack" class="queue-btn" data-i18n="ui.chat.ideaBackBtn"></button><button type="button" id="ideaCtxDrop" class="queue-btn" data-i18n="ui.chat.ideaDrop"></button></div>
-    <div class="chat-attach" id="chatAttach" hidden></div>
-    <div class="offline-note" data-i18n="ui.chat.offlineNote"></div>
-    <form class="chat-foot" id="chatForm">
-      <textarea id="chatInput" rows="1" data-i18n-ph="ui.chat.placeholder"></textarea>
-      <button type="submit" id="btnSend" title="Enter">➤</button>
+    <aside class="po-panel">
+      <nav class="po-tabs" id="tabs">
+        <button data-tab="chat" class="active" type="button">Chat</button>
+        <button data-tab="tasks" type="button">Task</button>
+        <button data-tab="talks" type="button">Họp &amp; DM</button>
+        <button data-tab="timeline" type="button">Timeline</button>
+        <button data-tab="agents" type="button">Agent</button>
+        <button data-tab="agent" type="button" hidden id="agentTabBtn">Chi tiết</button>
+      </nav>
+
+      <section class="po-tab active" id="tab-chat">
+        <div class="po-log" id="chatLog"></div>
+        <div class="po-busy" id="orchBusy" hidden></div>
+        <form class="po-compose" id="chatForm">
+          <textarea id="chatInput" rows="3" placeholder="Nhắn cho Điều phối viên… (Ctrl+Enter để gửi)"></textarea>
+          <button class="po-btn primary" type="submit">Gửi</button>
+        </form>
+        <p class="po-error" id="chatError" hidden></p>
+      </section>
+
+      <section class="po-tab" id="tab-tasks"><div id="taskBoard"></div></section>
+
+      <section class="po-tab" id="tab-talks">
+        <div id="talkList"></div>
+        <div id="talkView"></div>
+      </section>
+
+      <section class="po-tab" id="tab-timeline">
+        <div class="po-row"><select id="tlFilter" class="po-select"></select><span class="po-muted" id="tlCount"></span></div>
+        <ol class="po-timeline" id="timeline"></ol>
+      </section>
+
+      <section class="po-tab" id="tab-agents">
+        <div id="agentList"></div>
+        <form class="po-form" id="agentForm">
+          <h3>Thêm agent</h3>
+          <label>Tên <input id="agName" required maxlength="200" /></label>
+          <label>Adapter <select id="agAdapter" class="po-select"></select></label>
+          <label>Vai trò
+            <select id="agRole" class="po-select">
+              <option value="worker">worker</option>
+              <option value="orchestrator">orchestrator (thay thế điều phối hiện tại)</option>
+            </select>
+          </label>
+          <label>Capabilities <input id="agCaps" placeholder="chat, code" /></label>
+          <label>Config (JSON) <textarea id="agConfig" rows="3">{}</textarea></label>
+          <button class="po-btn primary" type="submit">Thêm</button>
+          <p class="po-error" id="agentError" hidden></p>
+        </form>
+      </section>
+
+      <section class="po-tab" id="tab-agent"><div id="agentDetail"></div></section>
+    </aside>
+  </div>
+
+  <div class="po-overlay" id="login" hidden>
+    <form class="po-form po-card" id="loginForm">
+      <h3>Đăng nhập</h3>
+      <p class="po-muted">Dán token tạo bằng <code>uv run office-api create-owner --name "Tên"</code>.</p>
+      <input id="tokenInput" placeholder="po_…" autocomplete="off" required />
+      <button class="po-btn primary" type="submit">Vào</button>
+      <p class="po-error" id="loginError" hidden></p>
     </form>
-    <div class="chat-hint" data-i18n="ui.chat.hint"></div>
-  </aside>
-
-  <aside class="chat meeting" id="meeting">
-    <div class="chat-resize" id="meetResize" title="⇔"></div>
-    <div class="chat-head">
-      <div class="meet-icon">👥</div>
-      <div class="chat-title">
-        <div class="chat-name"><span id="meetTopic">—</span></div>
-        <div class="chat-role" id="meetSub"></div>
-      </div>
-      <button class="icon-btn" id="meetHistory" data-i18n-title="ui.meeting.history">🕘</button>
-      <button class="btn small danger" id="meetEnd" data-i18n="ui.meeting.end"></button>
-      <button class="icon-btn" id="meetClose" hidden data-i18n-title="ui.meeting.close">×</button>
-    </div>
-    <div class="meet-main">
-      <div class="meet-people" id="meetPeople"></div>
-      <div class="chat-body" id="meetBody"></div>
-    </div>
-    <div class="meet-foot">
-      <div class="meet-hands" id="meetHands"></div>
-      <div class="meet-mentions" id="meetMentions" hidden></div>
-      <div class="chat-attach" id="meetAttach" hidden></div>
-      <div class="offline-note" data-i18n="ui.chat.offlineNote"></div>
-      <form class="chat-foot" id="meetForm">
-        <textarea id="meetInput" rows="1" data-i18n-ph="ui.meeting.placeholder"></textarea>
-        <button type="submit" title="Enter">➤</button>
-      </form>
-    </div>
-    <div class="chat-hint" id="meetHint" data-i18n="ui.meeting.hint"></div>
-  </aside>
-
-  <div class="modal" id="boardModal" hidden>
-    <div class="modal-card board-card">
-      <div class="modal-head">
-        <nav class="tabs" id="boardTabs"><button type="button" data-tab="tasks"><span data-i18n="ui.board.tabTasks"></span><span class="badge" id="tasksBadge" hidden></span></button><button type="button" data-tab="notes"><span data-i18n="ui.board.tabNotes"></span></button><button type="button" data-tab="ideas"><span data-i18n="ui.board.tabIdeas"></span><span class="badge" id="ideasBadge" hidden></span></button></nav>
-        <small class="muted" id="boardManager"></small>
-        <button class="icon-btn" id="boardClose" data-i18n-title="ui.board.close">×</button>
-      </div>
-      <div class="board-mode" id="boardMode">
-        <label><span data-i18n="ui.board.modeLabel"></span> <select id="officeMode"></select></label>
-        <label class="mode-extra"><span data-i18n="ui.board.budget"></span> <input id="officeBudget" type="number" min="1" max="500" step="1" /></label>
-        <label class="mode-extra"><span data-i18n="ui.board.rounds"></span> <input id="officeRounds" type="number" min="1" max="24" step="1" /></label>
-        <span class="tag" id="cyclePhase" hidden></span>
-        <small class="muted" id="officeModeHint"></small>
-        <div class="mode-confirm" id="modeConfirm" hidden></div>
-      </div>
-      <section id="boardTasks">
-        <div class="board-bar"><select id="taskOwnerFilter"></select><button class="btn small primary" type="button" id="taskStartAll" hidden></button><label class="check"><input type="checkbox" id="taskShowDone" /> <span data-i18n="ui.board.showDone"></span></label></div>
-        <div id="taskList" class="board-list"></div>
-        <details class="board-new"><summary><span data-i18n="ui.board.newTask"></span></summary><form id="newTaskForm" class="board-form">
-          <div class="board-row"><input id="newTaskTitle" maxlength="160" required data-i18n-ph="ui.board.taskTitle" /><select id="newTaskOwner"></select></div>
-          <textarea id="newTaskDetail" rows="2" data-i18n-ph="ui.board.taskDetail"></textarea>
-          <label class="check"><input type="checkbox" id="newTaskReview" /> <span data-i18n="ui.board.needsReviewLong"></span></label>
-          <div class="actions"><small class="muted" data-i18n="ui.board.addHint"></small><button class="btn primary small" type="submit" data-i18n="ui.board.add"></button></div>
-        </form></details>
-      </section>
-      <section id="boardIdeas" hidden>
-        <div class="board-bar"><small class="muted" data-i18n="ui.board.ideasHint"></small><button class="btn small" type="button" id="ideaDiscover" data-i18n="ui.board.discover" data-i18n-title="ui.board.discoverTip"></button><label class="check"><input type="checkbox" id="ideaShowAll" /> <span data-i18n="ui.board.ideaShowAll"></span></label></div>
-        <div id="ideaList" class="board-list"></div>
-        <details class="board-new"><summary><span data-i18n="ui.board.newIdea"></span></summary><form id="newIdeaForm" class="board-form">
-          <input id="newIdeaTitle" maxlength="160" required data-i18n-ph="ui.board.ideaTitle" />
-          <textarea id="newIdeaText" rows="2" data-i18n-ph="ui.board.ideaText"></textarea>
-          <div class="actions"><button class="btn primary small" type="submit" data-i18n="ui.board.addIdea"></button></div>
-        </form></details>
-      </section>
-      <section id="boardNotes" hidden>
-        <div class="board-bar"><select id="noteAuthorFilter"></select><small class="muted" id="notesCount"></small></div>
-        <div id="noteList" class="board-list"></div>
-        <details class="board-new"><summary><span data-i18n="ui.board.newNote"></span></summary><form id="newNoteForm" class="board-form">
-          <input id="newNoteTitle" maxlength="140" required data-i18n-ph="ui.board.noteTitle" />
-          <textarea id="newNoteText" rows="3" required data-i18n-ph="ui.board.noteText"></textarea>
-          <div class="board-row"><input id="newNoteTags" data-i18n-ph="ui.board.noteTags" /><button class="btn primary small" type="submit" data-i18n="ui.board.addNote"></button></div>
-        </form></details>
-      </section>
-      <aside class="task-drawer" id="taskDrawer" hidden></aside>
-    </div>
   </div>
 
-  <div class="modal" id="meetStartModal" hidden>
-    <div class="modal-card narrow">
-      <div class="modal-head"><h2 data-i18n="ui.meeting.startTitle"></h2><button class="icon-btn" id="meetStartClose" data-i18n-title="ui.meeting.cancel">×</button></div>
-      <form id="meetStartForm">
-        <label class="field"><span data-i18n="ui.meeting.topic"></span><input id="meetTopicInput" maxlength="120" data-i18n-ph="ui.meeting.topicPh" /></label>
-        <div class="field">
-          <span class="meet-pick-head"><span data-i18n="ui.meeting.participants"></span><span class="meet-pick-tools"><button type="button" class="link-btn" id="meetAll" data-i18n="ui.meeting.all"></button> · <button type="button" class="link-btn" id="meetNone" data-i18n="ui.meeting.none"></button></span></span>
-          <div class="meet-pick" id="meetPick"></div>
-        </div>
-        <div class="field" id="meetBusyField" hidden>
-          <span data-i18n="ui.meeting.busyLabel"></span>
-          <label class="radio"><input type="radio" name="meetBusy" value="wait" checked /> <span data-i18n="ui.meeting.busyWait"></span></label>
-          <label class="radio"><input type="radio" name="meetBusy" value="interrupt" /> <span data-i18n="ui.meeting.busyInterrupt"></span></label>
-        </div>
-        <small class="muted" id="meetCost"></small>
-        <div class="actions right">
-          <button type="button" class="link-btn" id="meetStartHistory" style="margin-right:auto" data-i18n="ui.meeting.history"></button>
-          <button class="btn ghost" type="button" id="meetStartCancel" data-i18n="ui.meeting.cancel"></button>
-          <button class="btn primary" type="submit" data-i18n="ui.meeting.start"></button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <div class="modal" id="meetEndModal" hidden>
-    <div class="modal-card narrow">
-      <div class="modal-head"><h2 data-i18n="ui.meeting.endTitle"></h2><button class="icon-btn" id="meetEndClose" data-i18n-title="ui.meeting.cancel">×</button></div>
-      <label class="check"><input type="checkbox" id="meetOptSummary" checked /> <span data-i18n="ui.meeting.optSummary"></span></label>
-      <label class="check"><input type="checkbox" id="meetOptMemory" checked /> <span data-i18n="ui.meeting.optMemory"></span></label>
-      <div class="actions right">
-        <button class="btn ghost" id="meetEndCancel" data-i18n="ui.meeting.cancel"></button>
-        <button class="btn danger" id="meetEndConfirm" data-i18n="ui.meeting.endConfirm"></button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="inboxModal" hidden>
-    <div class="modal-card panel-card">
-      <div class="modal-head"><h2 data-i18n="ui.inbox.title"></h2><button class="icon-btn" id="inboxClose" data-i18n-title="ui.inbox.close">×</button></div>
-      <div class="panel-list" id="inboxList"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="activityModal" hidden>
-    <div class="modal-card panel-card">
-      <div class="modal-head"><h2 data-i18n="ui.activity.title"></h2><button class="icon-btn" id="activityClose" data-i18n-title="ui.activity.close">×</button></div>
-      <nav class="pfilters" id="activityFilters"></nav>
-      <div class="panel-list" id="activityList"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="costsModal" hidden>
-    <div class="modal-card panel-card">
-      <div class="modal-head"><h2 data-i18n="ui.costs.title"></h2><button class="icon-btn" id="costsClose" data-i18n-title="ui.costs.close">×</button></div>
-      <div id="costsBody"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="progressModal" hidden>
-    <div class="modal-card panel-card">
-      <div class="modal-head"><h2 data-i18n="ui.progress.title"></h2><button class="icon-btn" id="progressClose" data-i18n-title="ui.progress.close">×</button></div>
-      <div id="progressBody"></div>
-    </div>
-  </div>
-
-  <div class="modal" id="settingsModal" hidden>
-    <div class="modal-card settings-card">
-      <div class="modal-head">
-        <nav class="tabs" id="settingsTabs"><button type="button" data-tab="general" data-i18n="ui.settings.tabs.general"></button><button type="button" data-tab="offices" data-i18n="ui.settings.tabs.offices"></button><button type="button" data-tab="office" data-i18n="ui.settings.tabs.office"></button><button type="button" data-tab="sessions" data-i18n="ui.settings.tabs.sessions"></button><button type="button" data-tab="models" data-i18n="ui.settings.tabs.models"></button><button type="button" data-tab="server" data-i18n="ui.settings.tabs.server"></button></nav>
-        <button class="icon-btn" id="settingsClose" data-i18n-title="ui.settings.close">×</button>
-      </div>
-      <section class="set-pane" data-pane="general">
-        <label class="field"><span data-i18n="ui.settings.lang"></span><span id="langHost" class="set-lang"></span><small data-i18n="ui.settings.langHint"></small></label>
-        <div class="field">
-          <label class="check"><input type="checkbox" id="setNotify" /> <span data-i18n="ui.settings.notify"></span></label>
-          <small id="setNotifyHint" data-i18n="ui.settings.notifyHint"></small>
-        </div>
-        <div class="field">
-          <label class="check"><input type="checkbox" id="setEvents" /> <span data-i18n="ui.settings.events"></span></label>
-          <small data-i18n="ui.settings.eventsHint"></small>
-        </div>
-        <div class="field">
-          <label class="check"><input type="checkbox" id="setSickness" data-key="sickness" /> <span data-i18n="ui.settings.sickness"></span></label>
-          <small data-i18n="ui.settings.sicknessHint"></small>
-          <small class="set-lock" data-lock="sickness" hidden></small>
-        </div>
-      </section>
-      <section class="set-pane" data-pane="offices" hidden>
-        <p class="muted set-intro" data-i18n="ui.settings.officesHint"></p>
-        <div class="office-list" id="officeList"></div>
-        <h3 data-i18n="ui.offices.add"></h3>
-        <form id="officeAdd" class="office-add">
-          <label class="field"><span data-i18n="ui.offices.name"></span><input id="oName" required maxlength="60" data-i18n-ph="ui.offices.namePh" /></label>
-          <label class="field"><span data-i18n="ui.offices.cwd"></span><input id="oCwd" maxlength="500" data-i18n-ph="ui.offices.cwdPh" /><small data-i18n="ui.offices.cwdHint"></small></label>
-          <div class="field"><span data-i18n="ui.themes.label"></span><div class="theme-cards" id="oTheme"></div></div>
-          <div class="actions"><button class="btn primary" type="submit" data-i18n="ui.offices.add"></button></div>
-        </form>
-      </section>
-      <section class="set-pane" data-pane="office" hidden>
-        <p class="muted set-intro" id="setOfficeName"></p>
-        <h3 data-i18n="ui.settings.modeTitle"></h3>
-        <div class="board-mode set-mode" id="setMode">
-          <label><span data-i18n="ui.board.modeLabel"></span> <select id="setOfficeMode"></select></label>
-          <label class="mode-extra"><span data-i18n="ui.board.budget"></span> <input id="setOfficeBudget" type="number" min="1" max="500" step="1" /></label>
-          <label class="mode-extra"><span data-i18n="ui.board.rounds"></span> <input id="setOfficeRounds" type="number" min="1" max="24" step="1" /></label>
-          <span class="tag" id="setCyclePhase" hidden></span>
-          <small class="muted" id="setOfficeModeHint"></small>
-          <div class="mode-confirm" id="setModeConfirm" hidden></div>
-        </div>
-        <h3 data-i18n="ui.settings.capTitle"></h3>
-        <form class="ccap" id="setCapForm">
-          <label><span data-i18n="ui.costs.capDaily"></span><input id="setCapDaily" type="number" min="0" step="any" /></label>
-          <label><span data-i18n="ui.costs.capCodex"></span><input id="setCapCodex" type="number" min="0" step="any" /></label>
-          <button class="btn small primary" type="submit" data-i18n="ui.settings.capSave"></button>
-          <small class="muted" data-i18n="ui.costs.capHint"></small>
-        </form>
-        <div class="actions"><button class="link-btn" type="button" id="setCostsLink"><span data-i18n="ui.settings.costsLink"></span> →</button></div>
-      </section>
-      <section class="set-pane" data-pane="sessions" hidden>
-        <div class="field">
-          <span data-i18n="ui.settings.compact"></span>
-          <input id="setCompact" data-key="compactAtTokens" type="number" min="0" max="1000" step="10" />
-          <small data-i18n="ui.settings.compactHint"></small>
-          <small class="set-lock" data-lock="compactAtTokens" hidden></small>
-        </div>
-        <div class="field">
-          <label class="check"><input type="checkbox" id="setTaskSessions" data-key="taskSessions" /> <span data-i18n="ui.settings.taskSessions"></span></label>
-          <small data-i18n="ui.settings.taskSessionsHint"></small>
-        </div>
-        <div class="field">
-          <span data-i18n="ui.settings.refresh"></span>
-          <input id="setRefresh" data-key="refreshHours" type="number" min="1" max="168" step="1" />
-          <small data-i18n="ui.settings.refreshHint"></small>
-        </div>
-        <div class="field">
-          <label class="check"><input type="checkbox" id="setSync" data-key="syncClaudeAgents" /> <span data-i18n="ui.settings.sync"></span></label>
-          <small data-i18n="ui.settings.syncHint"></small>
-        </div>
-      </section>
-      <section class="set-pane" data-pane="models" hidden>
-        <p class="muted set-intro" data-i18n="ui.settings.models.intro"></p>
-        <div class="prov-list" id="provList"></div>
-      </section>
-      <section class="set-pane" data-pane="server" hidden>
-        <dl class="set-info" id="setServerInfo"></dl>
-        <small class="muted set-note" data-i18n="ui.settings.restartHint"></small>
-        <h3 data-i18n="ui.shutdown.btn"></h3>
-        <div class="actions set-danger"><small class="muted" data-i18n="ui.settings.shutdownHint"></small><button class="btn danger" type="button" id="setShutdown"><span>⏻</span> <span data-i18n="ui.shutdown.btn"></span></button></div>
-      </section>
-    </div>
-  </div>
-
-  <div class="modal" id="shutdownModal" hidden>
-    <div class="modal-card narrow">
-      <div class="modal-head"><h2 data-i18n="ui.shutdown.title"></h2><button class="icon-btn" id="shutdownClose" data-i18n-title="ui.shutdown.cancel">×</button></div>
-      <p class="muted" data-i18n="ui.shutdown.body"></p>
-      <div class="actions right">
-        <button class="btn ghost" id="shutdownCancel" data-i18n="ui.shutdown.cancel"></button>
-        <button class="btn danger" id="shutdownConfirm" data-i18n="ui.shutdown.confirm"></button>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal" id="welcomeModal" hidden>
-    <div class="modal-card narrow welcome">
-      <h2 data-i18n="ui.welcome.title"></h2>
-      <p class="muted" data-i18n="ui.welcome.intro"></p>
-      <ol>
-        <li data-i18n="ui.welcome.s1"></li>
-        <li data-i18n="ui.welcome.s2"></li>
-        <li data-i18n="ui.welcome.s3"></li>
-      </ol>
-      <div class="actions right"><button class="btn" id="welcomeGuide" data-i18n="ui.guide.invite"></button><button class="btn primary" id="welcomeGo" data-i18n="ui.welcome.cta"></button></div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast"></div>
-
-  <script src="/i18n.js"></script>
   <script src="layout.js"></script>
-  <script src="market.js"></script>
   <script src="office.js"></script>
-  <script src="shared.js"></script>
-  <script src="app.js"></script>
-  <script src="layouteditor.js"></script>
-  <script src="shop.js"></script>
-  <script src="toolsmenu.js"></script>
-  <script src="integrations.js"></script>
-  <script src="skills.js"></script>
-  <script src="coins.js"></script>
-  <script src="board.js"></script>
-  <script src="meeting.js"></script>
-  <script src="inbox.js"></script>
-  <script src="activity.js"></script>
-  <script src="costs.js"></script>
-  <script src="progress.js"></script>
-  <script src="status.js"></script>
-  <script src="settings.js"></script>
-  <script src="guide.js"></script>
-  <script src="debug.js"></script>
+  <script src="po-app.js"></script>
 </body>
 </html>

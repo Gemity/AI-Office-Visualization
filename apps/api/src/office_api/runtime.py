@@ -36,12 +36,15 @@ from office_api import orchestrator as orch
 from office_api.config import Settings
 from office_api.db import new_id, utcnow
 from office_api.events import EventBroker, append_event, commit_and_publish
+from office_api.hub import ConversationMixin
+from office_api.interventions import InterventionError, InterventionMixin
 from office_api.models import (
     AgentDefinition,
     AgentRun,
     Artifact,
     Conversation,
     ConversationParticipant,
+    Intervention,
     Message,
     OrchestratorAssignment,
     Project,
@@ -67,7 +70,7 @@ class NoOrchestrator(Exception):
     pass
 
 
-class Runtime:
+class Runtime(ConversationMixin, InterventionMixin):
     def __init__(
         self,
         settings: Settings,
@@ -83,6 +86,10 @@ class Runtime:
         self._running: set[asyncio.Task] = set()
         self._wake = asyncio.Event()
         self._loop_task: asyncio.Task | None = None
+        # run_id -> (adapter, handle_id, task_id) while an invocation is in flight
+        self._live: dict[str, tuple[AgentAdapter, str, str | None]] = {}
+        self._conversations: dict[str, asyncio.Task] = {}  # meeting/dm task_id -> coroutine
+        self._stopping: set[str] = set()  # conversation task_ids cancelled by an intervention
 
     # --- lifecycle --------------------------------------------------------
 
@@ -134,6 +141,10 @@ class Runtime:
                 if run.purpose == "orchestrator_turn":
                     if (retry := await self._fail_turn(s, run, error)) is not None:
                         turns_to_spawn.append(retry)
+                elif run.purpose == "conversation_turn":
+                    # The whole conversation restarts (its task is reset below).
+                    run.status, run.finished_at = RunState.FAILED, utcnow()
+                    run.error = error.model_dump()
                 else:
                     task = await s.get(Task, run.task_id)
                     await self._fail_task_run(s, run, task, error)
@@ -148,6 +159,23 @@ class Runtime:
             )
             for task in orphans:
                 task.status, task.assignee_id = "pending", None
+            for conv in await s.scalars(
+                select(Conversation).where(
+                    Conversation.type.in_(["group_meeting", "dm"]), Conversation.status == "open"
+                )
+            ):
+                conv.status = "abandoned"
+            # Interventions waiting for a run that no longer exists can apply now.
+            await s.flush()
+            requested = await s.scalars(
+                select(Intervention).where(
+                    Intervention.status == "requested", Intervention.task_id.is_not(None)
+                )
+            )
+            for iv in requested:
+                task = await s.get(Task, iv.task_id)
+                if task.status != "active":
+                    turns_to_spawn += await self._apply_stop(s, task, iv)
             await self._commit(s)
         if runs:
             log.warning("recovered %d interrupted runs", len(runs))
@@ -176,9 +204,11 @@ class Runtime:
             ready = (
                 await s.scalars(
                     select(Task)
+                    .join(Project, Project.id == Task.project_id)
                     .where(
-                        Task.kind == "work",
+                        Task.kind.in_(["work", "meeting", "dm"]),
                         Task.status == "pending",
+                        Project.status == "active",
                         (Task.retry_at.is_(None)) | (Task.retry_at <= utcnow()),
                     )
                     .order_by(Task.priority.desc(), Task.created_at)
@@ -194,14 +224,26 @@ class Runtime:
                 )
             ).all()
             per_project = Counter(p for p, _ in active)
+            for conv_task_id in list(self._conversations):  # running meetings / dms count too
+                per_project[(await s.get(Task, conv_task_id)).project_id] += 1
             busy = {a for _, a in active}
             workers_by_project: dict[str, list[AgentDefinition]] = {}
+            conversations: list[str] = []
 
             for task in ready:
                 if per_project[task.project_id] >= self.settings.max_parallel_runs:
                     continue
                 if task.project_id not in workers_by_project:
                     workers_by_project[task.project_id] = await self._workers(s, task.project_id)
+                if task.kind in ("meeting", "dm"):
+                    present = {w.id for w in workers_by_project[task.project_id]}
+                    if not set(task.participants) <= present:
+                        turns += await self._block(s, task, "participant_unavailable")
+                        continue
+                    await self._start_conversation(s, task)
+                    per_project[task.project_id] += 1
+                    conversations.append(task.id)
+                    continue
                 needed = set(task.required_capabilities)
                 capable = [
                     w
@@ -222,6 +264,8 @@ class Runtime:
             await self._commit(s)
         for run_id in started:
             self._spawn(self._execute_task_run(run_id))
+        for task_id in conversations:
+            self._spawn_conversation(task_id)
         for run_id in turns:
             self._spawn(self._execute_turn(run_id))
 
@@ -275,6 +319,13 @@ class Runtime:
         async with self.sessionmaker() as s:
             run = await s.get(AgentRun, run_id)
             task = await s.get(Task, run.task_id)
+            if (iv := await self.pending_intervention(s, task.id)) is not None:
+                # Stopped before it reached the adapter.
+                run.status, run.finished_at = RunState.CANCELLED, utcnow()
+                turns = await self._apply_stop(s, task, iv)
+                await self._commit(s)
+                self._after(turns)
+                return
             agent = await s.get(AgentDefinition, run.agent_id)
             dependencies = await self._dependency_results(s, task)
             thread_id = await self._task_thread(s, task, agent.id)
@@ -313,8 +364,16 @@ class Runtime:
             run = await s.get(AgentRun, run_id)
             task = await s.get(Task, run.task_id)
             turns = []
-            if status.state == RunState.SUCCEEDED:
+            iv = await self.pending_intervention(s, task.id)
+            if iv is not None and status.state != RunState.SUCCEEDED:
+                run.status, run.finished_at = RunState.CANCELLED, utcnow()
+                turns = await self._apply_stop(s, task, iv)
+            elif status.state == RunState.SUCCEEDED:
                 turns = await self._complete_task_run(s, run, task, status, artifacts)
+                if iv is not None:
+                    await self._resolve(
+                        s, iv, "rejected", "run finished before it could be stopped"
+                    )
             else:
                 error = status.error or AgentError(
                     code=str(status.state), message="run did not succeed", retryable=False
@@ -333,6 +392,7 @@ class Runtime:
         handle = None
         try:
             handle = await adapter.invoke(invocation)
+            self._live[run_id] = (adapter, handle.handle_id, invocation.task_id)
             await self._mark_running(run_id, handle.provider_ref)
             status = await asyncio.wait_for(
                 self._follow(adapter, handle.handle_id, on_message), self.settings.run_timeout_s
@@ -351,6 +411,7 @@ class Runtime:
             log.exception("invocation %s failed", run_id)
             return _failed(run_id, "adapter_error", repr(exc), retryable=True), []
         finally:
+            self._live.pop(run_id, None)
             if handle is not None and hasattr(adapter, "forget"):
                 try:
                     if (await adapter.get_status(handle.handle_id)).state in TERMINAL:
@@ -497,7 +558,7 @@ class Runtime:
 
     async def _block_dependents(self, s: AsyncSession, task: Task) -> None:
         for dep in await self._dependents(s, task):
-            if dep.status in {"waiting", "pending"}:
+            if dep.status in {"waiting", "pending", "paused"}:
                 dep.status, dep.blocked_reason = "blocked", f"dependency_failed:{task.id}"
                 await append_event(
                     s,
@@ -674,6 +735,7 @@ class Runtime:
             error = AgentError(code=str(status.state), message="turn did not succeed")
 
         retry_turn = None
+        requested: list[tuple[Intervention, list[str]]] = []
         async with self.sessionmaker() as s:
             run = await s.get(AgentRun, run_id)
             if output is None:
@@ -699,9 +761,25 @@ class Runtime:
                     recipient_ids=list(owners),
                 )
                 await self.create_plan(s, run, output, planned)
+                for item in output.interventions:
+                    try:
+                        requested.append(
+                            await self.request_intervention(
+                                s,
+                                project_id=run.project_id,
+                                action=item.action,
+                                task_id=item.task_id,
+                                instructions=item.instructions,
+                                requested_by=agent.id,
+                            )
+                        )
+                    except InterventionError as exc:
+                        log.warning("orchestrator intervention ignored: %s", exc.message)
             await self._commit(s)
         if retry_turn is not None:
             self._spawn(self._execute_turn(retry_turn))
+        for iv, turns in requested:
+            await self.after_intervention_commit(iv, turns)
         self.wake()
 
     async def _fail_turn(self, s: AsyncSession, run: AgentRun, error: AgentError) -> str | None:
@@ -742,12 +820,12 @@ class Runtime:
             for w in await self._workers(s, run.project_id)
         ]
         open_tasks = [
-            {"title": t.title, "status": t.status}
+            {"id": t.id, "title": f"[{t.kind}] {t.title}", "status": t.status}
             for t in await s.scalars(
                 select(Task)
                 .where(
                     Task.project_id == run.project_id,
-                    Task.kind == "work",
+                    Task.kind != "plan",
                     Task.status.not_in(TASK_TERMINAL),
                 )
                 .order_by(Task.created_at)
@@ -836,11 +914,13 @@ class Runtime:
                 id=new_id("task"),
                 project_id=run.project_id,
                 parent_id=plan.id,
-                kind="work",
+                kind=p.type,
                 title=p.title,
                 description=p.instructions,
-                required_capabilities=[c.value for c in p.capabilities],
-                assignee_hint=p.assignee_id,
+                required_capabilities=[c.value for c in p.capabilities] if p.type == "work" else [],
+                assignee_hint=p.assignee_id if p.type == "work" else None,
+                participants=p.participants or [],
+                turn_limit=p.turn_limit,
                 status="waiting" if p.depends_on else "pending",
                 trace_id=run.trace_id,
             )
@@ -872,6 +952,7 @@ class Runtime:
                 "parent_id": task.parent_id,
                 "depends_on": depends_on,
                 "required_capabilities": task.required_capabilities,
+                "participants": task.participants,
                 "status": task.status,
             },
         )

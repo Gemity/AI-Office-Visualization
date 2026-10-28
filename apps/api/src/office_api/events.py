@@ -80,14 +80,26 @@ async def commit_and_publish(session: AsyncSession, broker: "EventBroker") -> No
 
 
 async def fetch_events(
-    session: AsyncSession, project_id: str, after_seq: int, limit: int
+    session: AsyncSession,
+    project_id: str,
+    after_seq: int,
+    limit: int,
+    *,
+    types: list[str] | None = None,
+    task_id: str | None = None,
+    actor_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> list[Event]:
-    rows = await session.scalars(
-        select(EventRow)
-        .where(EventRow.project_id == project_id, EventRow.seq > after_seq)
-        .order_by(EventRow.seq)
-        .limit(limit)
-    )
+    stmt = select(EventRow).where(EventRow.project_id == project_id, EventRow.seq > after_seq)
+    if types:
+        stmt = stmt.where(EventRow.type.in_(types))
+    if task_id:
+        stmt = stmt.where(EventRow.task_id == task_id)
+    if actor_id:
+        stmt = stmt.where(EventRow.actor_id == actor_id)
+    if conversation_id:
+        stmt = stmt.where(EventRow.conversation_id == conversation_id)
+    rows = await session.scalars(stmt.order_by(EventRow.seq).limit(limit))
     return [to_contract(r) for r in rows]
 
 

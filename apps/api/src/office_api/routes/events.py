@@ -13,7 +13,7 @@ import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
-from office_contracts import Event
+from office_contracts import Event, EventType
 from pydantic import BaseModel
 
 from office_api.auth import Membership, Session, authenticate, find_membership
@@ -36,8 +36,22 @@ async def list_events(
     session: Session,
     after_seq: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+    type: Annotated[list[EventType] | None, Query(description="Repeatable filter.")] = None,
+    task_id: str | None = None,
+    actor_id: str | None = None,
+    conversation_id: str | None = None,
 ):
-    events = await fetch_events(session, project_id, after_seq, limit)
+    """Timeline / replay. Filters narrow the result; paging stays by sequence."""
+    events = await fetch_events(
+        session,
+        project_id,
+        after_seq,
+        limit,
+        types=[t.value for t in type] if type else None,
+        task_id=task_id,
+        actor_id=actor_id,
+        conversation_id=conversation_id,
+    )
     return EventPage(events=events, next_after_seq=events[-1].sequence if events else after_seq)
 
 

@@ -1,0 +1,90 @@
+/* AI Project Office shell on top of the Pixel Office stage (style.css). */
+:root { --panel-w: clamp(360px, 34vw, 520px); }
+
+.po-main { display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w); min-height: 0; }
+.po-main .stage { min-height: 0; }
+.po-note { color: var(--muted); font-size: 11px; margin: 8px 0 0; text-align: center; min-height: 14px; }
+
+.po-btn {
+  background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer;
+}
+.po-btn:hover { border-color: var(--accent); }
+.po-btn.primary { background: var(--accent); color: #1a1406; border-color: var(--accent); font-weight: 600; }
+.po-btn.ghost { background: transparent; }
+.po-btn.small { padding: 2px 7px; font-size: 11px; }
+.po-btn.danger { border-color: #7a3434; color: #ffb4b4; }
+.po-btn:disabled { opacity: .5; cursor: default; }
+.po-select { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 12px; max-width: 260px; }
+.po-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.po-pill.on { color: var(--working); border-color: #2f6b45; }
+.po-pill.off { color: var(--error); border-color: #6b2f2f; }
+.po-pill.wait { color: var(--waiting); border-color: #6b5a2f; }
+
+.po-panel { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); background: var(--panel); }
+.po-tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.po-tabs button { background: none; border: 0; color: var(--muted); font: inherit; font-size: 12px; padding: 6px 10px; cursor: pointer; border-bottom: 2px solid transparent; }
+.po-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.po-tab { display: none; flex: 1; min-height: 0; overflow: auto; padding: 10px 12px; }
+.po-tab.active { display: flex; flex-direction: column; }
+#tab-chat.active { overflow: hidden; }
+
+.po-log { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.po-msg { max-width: 88%; padding: 7px 10px; border-radius: 8px; background: var(--card); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
+.po-msg.owner { align-self: flex-end; background: var(--user); border-color: #3d4a75; }
+.po-msg .who { display: block; font-size: 10px; color: var(--muted); margin-bottom: 2px; }
+.po-busy { color: var(--waiting); font-size: 11px; padding: 4px 0; }
+.po-compose { display: flex; gap: 6px; align-items: flex-end; }
+.po-compose textarea { flex: 1; resize: vertical; }
+textarea, input { background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12px; }
+.po-error { color: var(--error); font-size: 11px; margin: 6px 0 0; }
+.po-muted { color: var(--muted); font-size: 11px; }
+.po-empty { color: var(--muted); font-size: 12px; padding: 12px 0; }
+.po-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+
+.po-plan { margin-bottom: 14px; }
+.po-plan > h4 { margin: 0 0 6px; font-size: 12px; color: var(--accent); font-weight: 600; }
+.po-task { border: 1px solid var(--line); border-radius: 8px; background: var(--card); margin-bottom: 6px; }
+.po-task > .head { display: flex; gap: 8px; align-items: center; padding: 6px 8px; cursor: pointer; }
+.po-task .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.po-task .body { padding: 0 10px 10px; font-size: 12px; display: none; }
+.po-task.open .body { display: block; }
+.po-task .actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+.po-task pre, .po-pre { white-space: pre-wrap; word-break: break-word; background: var(--bg-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 6px 0; font: inherit; font-size: 11px; max-height: 240px; overflow: auto; }
+.po-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.st-active { color: var(--working); border-color: #2f6b45; }
+.st-completed { color: #9ad1ff; border-color: #2f4f6b; }
+.st-failed, .st-blocked, .st-cancelled { color: var(--error); border-color: #6b2f2f; }
+.st-paused, .st-waiting, .st-requested { color: var(--waiting); border-color: #6b5a2f; }
+.st-pending { color: var(--text); }
+.st-applied { color: var(--working); border-color: #2f6b45; }
+.st-rejected { color: var(--error); border-color: #6b2f2f; }
+.po-iv { font-size: 11px; margin-top: 4px; }
+
+.po-list-item { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; background: var(--card); cursor: pointer; }
+.po-list-item.selected { border-color: var(--accent); }
+.po-live { color: var(--error); font-weight: 600; font-size: 10px; }
+
+.po-timeline { list-style: none; padding: 0; margin: 0; font-size: 11px; }
+.po-timeline li { padding: 4px 0; border-bottom: 1px dashed var(--line); display: grid; grid-template-columns: 62px 1fr; gap: 6px; }
+.po-timeline .t { color: var(--muted); }
+.po-timeline .ty { color: var(--accent); }
+
+.po-form { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.po-form h3 { margin: 0; font-size: 13px; }
+.po-form label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--muted); }
+.po-agent { display: flex; gap: 8px; align-items: center; }
+.po-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; }
+.po-dot.working { background: var(--working); }
+.po-dot.error { background: var(--error); }
+
+.po-overlay { position: fixed; inset: 0; background: rgba(8, 9, 12, .85); display: grid; place-items: center; z-index: 50; }
+.po-overlay[hidden] { display: none; }
+.po-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; width: min(420px, 92vw); }
+.roster-chip .rs.working { color: var(--working); }
+.roster-chip .rs.error { color: var(--error); }
+
+@media (max-width: 900px) {
+  .po-main { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
+  .po-panel { border-left: 0; border-top: 1px solid var(--line); }
+}
