@@ -13,6 +13,7 @@ OUTCOME = {
                 "instructions": "tạo main.py",
                 "capabilities": ["code"],
                 "assignee_id": None,
+                "risk_actions": [],
             }
         ],
     }

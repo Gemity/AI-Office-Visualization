@@ -146,6 +146,8 @@ class InterventionMixin:
         """The task is not running (any more): apply pause/cancel/redirect to it."""
         turns: list[str] = []
         task.assignee_id, task.retry_at = None, None
+        # Approvals were for the task as it was; a stopped or redirected task asks again.
+        await self.withdraw_approvals(s, task, f"intervention {iv.action}")
         if iv.action == "cancel":
             task.status = "cancelled"
             await self._block_dependents(s, task)

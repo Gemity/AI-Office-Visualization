@@ -241,7 +241,9 @@ class Task(Base):
     Status flow: waiting (deps unmet) → pending (ready; ``retry_at`` delays a
     retry) → active (run in progress) → completed | failed; a task whose
     dependency failed, or for which no capable worker exists, is blocked.
-    Owner interventions add paused (resumable) and cancelled.
+    Owner interventions add paused (resumable) and cancelled. A task whose run
+    would perform ``risk_actions`` (or whose worker declares such permissions)
+    waits in awaiting_approval until the Owner approves (BR-07).
     """
 
     __tablename__ = "tasks"
@@ -255,6 +257,7 @@ class Task(Base):
     required_capabilities: Mapped[list[str]] = mapped_column(default=list)
     participants: Mapped[list[str]] = mapped_column(default=list)  # meeting / dm agent ids
     turn_limit: Mapped[int | None] = mapped_column(Integer)
+    risk_actions: Mapped[list[str]] = mapped_column(default=list)  # office_contracts.RiskAction
     assignee_hint: Mapped[str | None] = mapped_column(ID)
     assignee_id: Mapped[str | None] = mapped_column(ID)
     status: Mapped[str] = mapped_column(String(32), default="pending")
@@ -273,8 +276,8 @@ class Task(Base):
         UniqueConstraint("project_id", "id"),
         ForeignKeyConstraint(["project_id", "parent_id"], ["tasks.project_id", "tasks.id"]),
         CheckConstraint(
-            "status IN ('pending', 'waiting', 'active', 'paused', 'blocked', 'completed',"
-            " 'failed', 'cancelled')"
+            "status IN ('pending', 'waiting', 'awaiting_approval', 'active', 'paused', 'blocked',"
+            " 'completed', 'failed', 'cancelled')"
         ),
         CheckConstraint("kind IN ('plan', 'work', 'meeting', 'dm')"),
         Index("ix_tasks_project_created", "project_id", "created_at"),
@@ -344,7 +347,10 @@ class Artifact(Base):
     task_id: Mapped[str | None] = mapped_column(ID)
     run_id: Mapped[str | None] = mapped_column(ID)
     type: Mapped[str] = mapped_column(String(32))
+    name: Mapped[str] = mapped_column(String(500), default="")
     uri: Mapped[str] = mapped_column(String(1000))
+    mime_type: Mapped[str | None] = mapped_column(String(200))
+    size_bytes: Mapped[int | None] = mapped_column(Integer)
     checksum: Mapped[str | None] = mapped_column(String(100))
     version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = _created_at()
@@ -372,6 +378,7 @@ class AgentRun(Base):
     attempt: Mapped[int] = mapped_column(Integer, default=1)
     idempotency_key: Mapped[str] = mapped_column(String(200))
     provider_ref: Mapped[str | None] = mapped_column(String(200))
+    progress: Mapped[float | None] = mapped_column(Numeric(4, 3, asdecimal=False))
     trace_id: Mapped[str] = mapped_column(String(64))
     cost: Mapped[float | None] = mapped_column(Numeric(12, 6, asdecimal=False))
     error: Mapped[dict[str, Any] | None]
@@ -415,22 +422,34 @@ class EventRow(Base):
 
 
 class Approval(Base):
+    """Owner approval for one run of a high-risk task (BR-07, AC-09).
+
+    ``scope`` is an ``office_contracts.ApprovalScope``. An approval is single-use:
+    the run it authorized is recorded in ``run_id``. ``cancelled`` = withdrawn by
+    the runtime because the task was stopped or its instructions changed.
+    """
+
     __tablename__ = "approvals"
 
     id: Mapped[str] = _pk()
     project_id: Mapped[str] = _project_fk()
-    action: Mapped[str] = mapped_column(String(64))
+    task_id: Mapped[str | None] = mapped_column(ID)
+    action: Mapped[str] = mapped_column(String(200))  # comma-joined RiskAction values
     scope: Mapped[dict[str, Any]] = mapped_column(default=dict)
     requester_id: Mapped[str] = mapped_column(ID)
     approver_id: Mapped[str | None] = mapped_column(ID)
     status: Mapped[str] = mapped_column(String(32), default="pending")
+    comment: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime]
     resolved_at: Mapped[datetime | None]
+    run_id: Mapped[str | None] = mapped_column(ID)  # the run that used it
     created_at: Mapped[datetime] = _created_at()
 
     __table_args__ = (
-        CheckConstraint("status IN ('pending', 'approved', 'rejected', 'expired')"),
+        ForeignKeyConstraint(["project_id", "task_id"], ["tasks.project_id", "tasks.id"]),
+        CheckConstraint("status IN ('pending', 'approved', 'rejected', 'expired', 'cancelled')"),
         Index("ix_approvals_project_status", "project_id", "status"),
+        Index("ix_approvals_project_created", "project_id", "created_at"),
     )
 
 

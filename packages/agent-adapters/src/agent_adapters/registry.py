@@ -7,11 +7,14 @@ from agent_adapters.base import AgentAdapter
 from agent_adapters.claude_sdk import ClaudeAgentSdkAdapter
 from agent_adapters.codex_cli import CodexCliAdapter
 from agent_adapters.mock import MockAdapter
+from agent_adapters.mock_jobs import MockModelJobAdapter, MockMusicJobAdapter
 
 ADAPTERS: dict[str, type] = {
     MockAdapter.adapter_type: MockAdapter,
     ClaudeAgentSdkAdapter.adapter_type: ClaudeAgentSdkAdapter,
     CodexCliAdapter.adapter_type: CodexCliAdapter,
+    MockMusicJobAdapter.adapter_type: MockMusicJobAdapter,
+    MockModelJobAdapter.adapter_type: MockModelJobAdapter,
 }
 
 

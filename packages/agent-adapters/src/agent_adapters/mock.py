@@ -9,6 +9,8 @@ Config:
   fail_first: int               fail the first N runs with a retryable error
   fail_code: str                error code for failures, default "mock_failure"
   fail_retryable: bool          default true
+  permissions: list[str]        declared required_permissions (e.g. "deploy_production")
+  cost_usd: float               cost reported for each successful run
 """
 
 import asyncio
@@ -32,6 +34,7 @@ class MockAdapter(TaskBackedAdapter):
             provider="mock",
             capabilities=self.config.get("capabilities", ["chat", "code"]),
             invocation_modes=["async_job"],
+            required_permissions=self.config.get("permissions", []),
             supported_artifact_types=["code", "document"],
             cost_model={"unit": "none"},
             observability_level="events",
@@ -57,4 +60,8 @@ class MockAdapter(TaskBackedAdapter):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
         await ctx.emit(AgentEventKind.MESSAGE, text=response.get("text", ""))
-        return AgentResult(text=response.get("text", ""), structured=response.get("structured"))
+        return AgentResult(
+            text=response.get("text", ""),
+            structured=response.get("structured"),
+            cost_usd=self.config.get("cost_usd"),
+        )

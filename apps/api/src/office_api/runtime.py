@@ -15,7 +15,9 @@ import asyncio
 import logging
 from collections import Counter
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from agent_adapters import TERMINAL, AgentAdapter, SupportsEvents, create_adapter
 from office_contracts import (
@@ -33,6 +35,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from office_api import orchestrator as orch
+from office_api.approvals import ApprovalMixin
 from office_api.config import Settings
 from office_api.db import new_id, utcnow
 from office_api.events import EventBroker, append_event, commit_and_publish
@@ -70,7 +73,7 @@ class NoOrchestrator(Exception):
     pass
 
 
-class Runtime(ConversationMixin, InterventionMixin):
+class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
     def __init__(
         self,
         settings: Settings,
@@ -201,6 +204,7 @@ class Runtime(ConversationMixin, InterventionMixin):
         started: list[str] = []
         turns: list[str] = []
         async with self.sessionmaker() as s:
+            turns += await self.expire_approvals(s)
             ready = (
                 await s.scalars(
                     select(Task)
@@ -215,6 +219,9 @@ class Runtime(ConversationMixin, InterventionMixin):
                 )
             ).all()
             if not ready:
+                await self._commit(s)
+                for run_id in turns:
+                    self.start_turn(run_id)
                 return
             active = (
                 await s.execute(
@@ -253,11 +260,22 @@ class Runtime(ConversationMixin, InterventionMixin):
                 if not capable:
                     turns += await self._block(s, task, "no_capable_worker")
                     continue
-                free = [w for w in capable if w.id not in busy]
-                if not free:
-                    continue
-                agent = next((w for w in free if w.id == task.assignee_hint), free[0])
-                run = await self._start_task_run(s, task, agent)
+                approved_for = await self.approved_agent(s, task)
+                if approved_for in {w.id for w in capable}:
+                    if approved_for in busy:
+                        continue  # wait for the worker the Owner approved
+                    agent = next(w for w in capable if w.id == approved_for)
+                else:
+                    free = [w for w in capable if w.id not in busy]
+                    if not free:
+                        continue
+                    agent = next((w for w in free if w.id == task.assignee_hint), free[0])
+                gate = await self._approval_gate(s, task, agent)
+                if isinstance(gate, str):
+                    continue  # approval requested; the task waits for the Owner
+                run = await self._start_task_run(s, task, agent, gate)
+                if gate is not None:
+                    gate.run_id = run.id
                 busy.add(agent.id)
                 per_project[task.project_id] += 1
                 started.append(run.id)
@@ -267,7 +285,7 @@ class Runtime(ConversationMixin, InterventionMixin):
         for task_id in conversations:
             self._spawn_conversation(task_id)
         for run_id in turns:
-            self._spawn(self._execute_turn(run_id))
+            self.start_turn(run_id)
 
     async def _workers(self, s: AsyncSession, project_id: str) -> list[AgentDefinition]:
         return list(
@@ -284,7 +302,7 @@ class Runtime(ConversationMixin, InterventionMixin):
         )
 
     async def _start_task_run(
-        self, s: AsyncSession, task: Task, agent: AgentDefinition
+        self, s: AsyncSession, task: Task, agent: AgentDefinition, approval=None
     ) -> AgentRun:
         task.attempts += 1
         task.status, task.assignee_id, task.retry_at = "active", agent.id, None
@@ -309,7 +327,12 @@ class Runtime(ConversationMixin, InterventionMixin):
             actor_id=agent.id,
             task_id=task.id,
             trace_id=run.trace_id,
-            payload={"run_id": run.id, "agent_id": agent.id, "attempt": run.attempt},
+            payload={
+                "run_id": run.id,
+                "agent_id": agent.id,
+                "attempt": run.attempt,
+                "approval_id": approval.id if approval is not None else None,
+            },
         )
         return run
 
@@ -395,7 +418,8 @@ class Runtime(ConversationMixin, InterventionMixin):
             self._live[run_id] = (adapter, handle.handle_id, invocation.task_id)
             await self._mark_running(run_id, handle.provider_ref)
             status = await asyncio.wait_for(
-                self._follow(adapter, handle.handle_id, on_message), self.settings.run_timeout_s
+                self._follow(adapter, run_id, handle.handle_id, on_message),
+                self.settings.run_timeout_s,
             )
             artifacts = []
             if status.state == RunState.SUCCEEDED and hasattr(adapter, "collect_artifacts"):
@@ -419,21 +443,41 @@ class Runtime(ConversationMixin, InterventionMixin):
                 except Exception:
                     pass
 
-    async def _follow(self, adapter: AgentAdapter, handle_id: str, on_message) -> AgentStatus:
+    async def _follow(
+        self, adapter: AgentAdapter, run_id: str, handle_id: str, on_message
+    ) -> AgentStatus:
         if isinstance(adapter, SupportsEvents):
             async for event in adapter.subscribe_events(handle_id):
                 if event.kind == AgentEventKind.MESSAGE and on_message is not None:
                     text = str(event.data.get("text", "")).strip()
                     if text:
                         await on_message(text)
+                elif event.kind in (AgentEventKind.STATUS, AgentEventKind.PROGRESS):
+                    # Async jobs: provider job id and the progress the provider reports.
+                    if "provider_ref" in event.data or "progress" in event.data:
+                        await self._record_progress(
+                            run_id, event.data.get("provider_ref"), event.data.get("progress")
+                        )
         while (status := await adapter.get_status(handle_id)).state not in TERMINAL:
             await asyncio.sleep(0.5)
         return status
 
+    async def _record_progress(
+        self, run_id: str, provider_ref: str | None, progress: float | None
+    ) -> None:
+        async with self.sessionmaker() as s:
+            run = await s.get(AgentRun, run_id)
+            if provider_ref:
+                run.provider_ref = provider_ref
+            if progress is not None:
+                run.progress = progress
+            await s.commit()
+
     async def _mark_running(self, run_id: str, provider_ref: str | None) -> None:
         async with self.sessionmaker() as s:
             run = await s.get(AgentRun, run_id)
-            run.status, run.provider_ref, run.started_at = RunState.RUNNING, provider_ref, utcnow()
+            run.status, run.started_at = RunState.RUNNING, utcnow()
+            run.provider_ref = provider_ref or run.provider_ref
             await s.commit()
 
     async def _complete_task_run(
@@ -450,14 +494,24 @@ class Runtime(ConversationMixin, InterventionMixin):
         run.output_ref = self.store.put_text(text)
         task.status, task.result_ref = "completed", run.output_ref
         for ref in artifacts:
+            name = Path(unquote(urlparse(ref.uri).path)).name
+            previous = await s.scalar(
+                select(func.max(Artifact.version)).where(
+                    Artifact.task_id == task.id, Artifact.uri == ref.uri
+                )
+            )
             artifact = Artifact(
                 id=new_id("art"),
                 project_id=task.project_id,
                 task_id=task.id,
                 run_id=run.id,
                 type=ref.type,
+                name=name,
                 uri=ref.uri,
+                mime_type=ref.mime_type,
+                size_bytes=ref.size_bytes,
                 checksum=ref.checksum,
+                version=(previous or 0) + 1,
             )
             s.add(artifact)
             await s.flush()
@@ -468,7 +522,13 @@ class Runtime(ConversationMixin, InterventionMixin):
                 actor_id=run.agent_id,
                 task_id=task.id,
                 trace_id=run.trace_id,
-                payload={"artifact_id": artifact.id, "type": ref.type, "uri": ref.uri},
+                payload={
+                    "artifact_id": artifact.id,
+                    "type": ref.type,
+                    "name": name,
+                    "uri": ref.uri,
+                    "version": artifact.version,
+                },
             )
         await append_event(
             s,
@@ -921,6 +981,7 @@ class Runtime(ConversationMixin, InterventionMixin):
                 assignee_hint=p.assignee_id if p.type == "work" else None,
                 participants=p.participants or [],
                 turn_limit=p.turn_limit,
+                risk_actions=[r.value for r in p.risk_actions],
                 status="waiting" if p.depends_on else "pending",
                 trace_id=run.trace_id,
             )
@@ -953,6 +1014,7 @@ class Runtime(ConversationMixin, InterventionMixin):
                 "depends_on": depends_on,
                 "required_capabilities": task.required_capabilities,
                 "participants": task.participants,
+                "risk_actions": task.risk_actions,
                 "status": task.status,
             },
         )

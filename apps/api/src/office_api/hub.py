@@ -390,6 +390,7 @@ class ConversationMixin:
                 title=item.title,
                 description=item.instructions,
                 required_capabilities=[c.value for c in item.capabilities],
+                risk_actions=[a.value for a in item.risk_actions],
                 assignee_hint=item.assignee_id if item.assignee_id in participants else None,
                 status="pending",
                 trace_id=task.trace_id,

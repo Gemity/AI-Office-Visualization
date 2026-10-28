@@ -893,6 +893,80 @@
         }
       }
     },
+    "/projects/{project_id}/artifacts/{artifact_id}/content": {
+      "get": {
+        "tags": [
+          "work"
+        ],
+        "summary": "Artifact Content",
+        "description": "The artifact's bytes, only if the file still matches the recorded checksum\nand lies inside this project's workspace (BR-04).",
+        "operationId": "artifact_content_projects__project_id__artifacts__artifact_id__content_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "download",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Download"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/projects/{project_id}/meetings": {
       "get": {
         "tags": [
@@ -1095,6 +1169,215 @@
         }
       }
     },
+    "/projects/{project_id}/approvals": {
+      "get": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "List Approvals",
+        "operationId": "list_approvals_projects__project_id__approvals_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApprovalOut"
+                  },
+                  "title": "Response List Approvals Projects  Project Id  Approvals Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/approvals/{approval_id}/decision": {
+      "post": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "Decide",
+        "description": "Approve or reject a pending approval (BR-07). Only project owners decide;\nan expired or already decided approval cannot be changed (409).",
+        "operationId": "decide_projects__project_id__approvals__approval_id__decision_post",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "approval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Approval Id"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteResponse_ApprovalOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/metrics": {
+      "get": {
+        "tags": [
+          "metrics"
+        ],
+        "summary": "Project Metrics",
+        "operationId": "project_metrics_projects__project_id__metrics_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectMetrics"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/healthz": {
       "get": {
         "tags": [
@@ -1169,6 +1452,74 @@
         ],
         "title": "AgentCreate"
       },
+      "AgentMetrics": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "adapter_type": {
+            "type": "string",
+            "title": "Adapter Type"
+          },
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "runs_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Runs By Status"
+          },
+          "runs_by_purpose": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Runs By Purpose"
+          },
+          "retries": {
+            "type": "integer",
+            "title": "Retries",
+            "description": "Runs that were a retry (attempt > 1)."
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "description": "Sum of costs reported by the provider."
+          },
+          "runs_without_cost": {
+            "type": "integer",
+            "title": "Runs Without Cost",
+            "description": "Finished runs with no reported cost."
+          },
+          "busy_seconds": {
+            "type": "number",
+            "title": "Busy Seconds",
+            "description": "Sum of finished runs' wall-clock time."
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_id",
+          "name",
+          "adapter_type",
+          "runs",
+          "runs_by_status",
+          "runs_by_purpose",
+          "retries",
+          "cost_usd",
+          "runs_without_cost",
+          "busy_seconds"
+        ],
+        "title": "AgentMetrics"
+      },
       "AgentOut": {
         "properties": {
           "id": {
@@ -1234,6 +1585,137 @@
         ],
         "title": "AgentOut"
       },
+      "ApprovalOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id",
+            "description": "Worker the approval is scoped to."
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "pending | approved | rejected | expired | cancelled"
+          },
+          "requester_id": {
+            "type": "string",
+            "title": "Requester Id"
+          },
+          "approver_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approver Id"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id",
+            "description": "Run that used this (single-use) approval."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "actions",
+          "agent_id",
+          "summary",
+          "status",
+          "requester_id",
+          "approver_id",
+          "comment",
+          "run_id",
+          "expires_at",
+          "resolved_at",
+          "created_at"
+        ],
+        "title": "ApprovalOut"
+      },
       "ArtifactOut": {
         "properties": {
           "id": {
@@ -1262,13 +1744,51 @@
             ],
             "title": "Run Id"
           },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id",
+            "description": "Worker whose run produced it (provenance)."
+          },
           "type": {
             "type": "string",
             "title": "Type"
           },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
           "uri": {
             "type": "string",
             "title": "Uri"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
           },
           "checksum": {
             "anyOf": [
@@ -1296,8 +1816,12 @@
           "id",
           "task_id",
           "run_id",
+          "agent_id",
           "type",
+          "name",
           "uri",
+          "mime_type",
+          "size_bytes",
           "checksum",
           "version",
           "created_at"
@@ -1512,6 +2036,30 @@
           "purpose": {
             "type": "string",
             "title": "Purpose"
+          },
+          "provider_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Ref",
+            "description": "Provider job/session id."
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress",
+            "description": "As reported by the provider."
           }
         },
         "type": "object",
@@ -1522,6 +2070,35 @@
           "purpose"
         ],
         "title": "CurrentRun"
+      },
+      "DecisionCreate": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "DecisionCreate"
       },
       "Event": {
         "properties": {
@@ -2051,6 +2628,94 @@
         ],
         "title": "ProjectCreate"
       },
+      "ProjectMetrics": {
+        "properties": {
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "runs_without_cost": {
+            "type": "integer",
+            "title": "Runs Without Cost"
+          },
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "runs_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Runs By Status"
+          },
+          "retries": {
+            "type": "integer",
+            "title": "Retries"
+          },
+          "run_failures": {
+            "type": "integer",
+            "title": "Run Failures",
+            "description": "run.failed events (each failed attempt)."
+          },
+          "tasks_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Tasks By Status",
+            "description": "work/meeting/dm tasks."
+          },
+          "approvals_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Approvals By Status"
+          },
+          "interventions_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Interventions By Status"
+          },
+          "artifacts_by_type": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Artifacts By Type"
+          },
+          "events": {
+            "type": "integer",
+            "title": "Events"
+          },
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/AgentMetrics"
+            },
+            "type": "array",
+            "title": "Agents"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cost_usd",
+          "runs_without_cost",
+          "runs",
+          "runs_by_status",
+          "retries",
+          "run_failures",
+          "tasks_by_status",
+          "approvals_by_status",
+          "interventions_by_status",
+          "artifacts_by_type",
+          "events",
+          "agents"
+        ],
+        "title": "ProjectMetrics"
+      },
       "ProjectOut": {
         "properties": {
           "id": {
@@ -2120,6 +2785,28 @@
             "type": "integer",
             "title": "Attempt"
           },
+          "provider_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Ref"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
           "error": {
             "anyOf": [
               {
@@ -2174,6 +2861,8 @@
           "agent_id",
           "status",
           "attempt",
+          "provider_ref",
+          "progress",
           "error",
           "cost",
           "started_at",
@@ -2238,6 +2927,13 @@
             },
             "type": "array",
             "title": "Required Capabilities"
+          },
+          "risk_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Risk Actions"
           },
           "assignee_id": {
             "anyOf": [
@@ -2313,6 +3009,7 @@
           "status",
           "blocked_reason",
           "required_capabilities",
+          "risk_actions",
           "assignee_id",
           "depends_on",
           "attempts",
@@ -2385,6 +3082,28 @@
           "data"
         ],
         "title": "WriteResponse[AgentOut]"
+      },
+      "WriteResponse_ApprovalOut_": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ApprovalOut"
+          }
+        },
+        "type": "object",
+        "required": [
+          "request_id",
+          "status",
+          "data"
+        ],
+        "title": "WriteResponse[ApprovalOut]"
       },
       "WriteResponse_InterventionOut_": {
         "properties": {

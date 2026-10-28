@@ -18,7 +18,8 @@ Dự án dùng cá nhân, phi thương mại.
 **Phase 0 xong** (ADR-0002): contracts, DB schema, project-scoped auth, event stream.
 **Phase 1 xong** (ADR-0003): agent registry, Owner ↔ Orchestrator chat, task runtime trên DB (DAG, dispatch theo capability, song song, retry, khôi phục), adapter `claude-agent-sdk` / `codex-cli` / `mock` — đã chạy thật với Claude + Codex.
 **Phase 2 xong** (ADR-0004): meeting/DM là task (`kind meeting|dm`, hub có moderator, biên bản, decision, action item), interventions (pause/resume/cancel/redirect, `requested → applied|rejected`), lọc timeline. UI mới `apps/web/index.html` + `po-app.js` là projection từ REST + WebSocket trên renderer Pixel Office (`observeOnly`).
-Tiếp theo: Phase 3 (adapter async mock Suno/Tripo, artifact, approval BR-07, metrics).
+**Phase 3 xong** (ADR-0005): adapter async job (`AsyncJobAdapter`, mock `mock-suno`/`mock-tripo`), approval gate cho hành động rủi ro cao (BR-07), artifact viewer/content an toàn, metrics chi phí.
+Tiếp theo: Phase 4 (hardening: ngân sách/circuit breaker, gắn lại job sau restart, Alembic/Postgres, sandbox OS, e2e AC-01…AC-10).
 
 ## Lệnh
 
@@ -41,26 +42,28 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
 
 ## Cấu trúc backend hiện có
 
-- `packages/contracts/src/office_contracts/` — Pydantic models là **nguồn gốc** của contract (`events.py`: Event envelope + EventType; `adapter.py`: CapabilityManifest, AgentInvocation, AgentStatus, ...). `schemas/*.json` và `openapi.json` là file **sinh ra**, không sửa tay; `test_generated_contracts_are_up_to_date` fail nếu cũ.
+- `packages/contracts/src/office_contracts/` — Pydantic models là **nguồn gốc** của contract (`events.py`: Event envelope + EventType; `adapter.py`: CapabilityManifest, AgentInvocation, AgentStatus, ...; `policy.py`: RiskAction, ApprovalScope). `schemas/*.json` và `openapi.json` là file **sinh ra**, không sửa tay; `test_generated_contracts_are_up_to_date` fail nếu cũ.
 - `packages/agent-adapters/src/agent_adapters/`:
   - `base.py` — `AgentAdapter` Protocol + `SupportsCancel/SupportsEvents/SupportsArtifacts`.
   - `runner.py` — `TaskBackedAdapter`: nền chung (idempotent invoke, cancel requested→confirmed, phát lại event, quét artifact trong workdir). Adapter mới chỉ cần `describe_capabilities()` + `_execute(ctx)`.
-  - `claude_sdk.py`, `codex_cli.py`, `mock.py`; `registry.py` (`create_adapter`). Gọi không có `workdir` ⇒ không cho ghi file.
+  - `jobs.py` — `AsyncJobAdapter`: worker dạng job (submit/poll/cancel), `provider_ref` + progress thật, output ghi vào workdir.
+  - `claude_sdk.py`, `codex_cli.py`, `mock.py`, `mock_jobs.py` (`mock-suno`, `mock-tripo`); `registry.py` (`create_adapter`). Gọi không có `workdir` ⇒ không cho ghi file.
 - `apps/api/src/office_api/`:
   - `models.py` — toàn bộ schema §9. Tham chiếu giữa bảng project-scoped dùng composite FK `(project_id, x_id)`; BR-01 là unique partial index. Không có ORM relationship ⇒ phải `flush()` row cha trước khi thêm row con.
   - `auth.py` — `Membership` dependency là cách duy nhất để vào route `/projects/{project_id}/...`; không phải thành viên → 404.
   - `events.py` — `append_event()` trong transaction rồi `commit_and_publish()`; không publish trước commit, không tự tính sequence.
   - `idempotency.py`, `errors.py` — `Idempotency-Key` bắt buộc cho write; error envelope + `X-Request-ID`.
   - `hub.py` — `ConversationMixin`: chạy meeting/DM theo lượt (`conversation_turn`), moderator = Orchestrator active, biên bản → `decision.recorded` + action item thành task mới.
+  - `approvals.py` — `ApprovalMixin`: dispatcher gọi `_approval_gate` trước khi tạo run; task có `risk_actions` hoặc worker có quyền rủi ro cao trong `required_permissions` → `awaiting_approval`; approval dùng một lần, scope gồm task/actions/worker/sha256 chỉ dẫn.
   - `interventions.py` — `InterventionMixin`: can thiệp chỉ `applied` khi runtime thấy run đã dừng thật; pause/resume không kèm task = cấp project.
-  - `runtime.py` — `Runtime(ConversationMixin, InterventionMixin)`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
+  - `runtime.py` — `Runtime(ConversationMixin, InterventionMixin, ApprovalMixin)`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
   - `orchestrator.py` — prompt + schema `OrchestratorOutput` (structured output) + `validate_plan`.
   - `storage.py` — content store `obj://` (nội dung tin nhắn/kết quả) và đường dẫn workspace.
-  - `routes/` — projects, events (REST replay có lọc `type`/`task_id`/`actor_id`/`conversation_id` + WebSocket), agents (`/adapters`, `/projects/{id}/agents`), orchestrator (`POST .../orchestrator/messages` → 202), work (tasks, conversations, messages, meetings, artifacts), interventions (`POST/GET .../interventions` → 202).
+  - `routes/` — projects, events (REST replay có lọc `type`/`task_id`/`actor_id`/`conversation_id` + WebSocket), agents (`/adapters`, `/projects/{id}/agents`), orchestrator (`POST .../orchestrator/messages` → 202), work (tasks, conversations, messages, meetings, artifacts + `/artifacts/{id}/content` có kiểm checksum, CSP sandbox), interventions (`POST/GET .../interventions` → 202), approvals (`GET`, `POST .../approvals/{id}/decision`), metrics (`GET .../metrics`).
   - `auth.py` — write trong project dùng `OwnerMembership` (observer chỉ đọc → 403).
   - `main.py` — mount `apps/web/` làm static tại `/` **sau cùng**; route API mới phải khai báo trước mount.
 - `apps/web/` — `index.html` + `po-app.js` + `po.css` là UI của dự án; `layout.js`/`office.js`/`style.css`/asset từ upstream (sửa gì ghi vào `UPSTREAM.md`). Office không được tự sinh hoạt động: chỉ `setStatus`/`speak`/`setMeeting` từ dữ liệu API/event.
-- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`, `test_phase2.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`.
+- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`, `test_phase2.py`, `test_phase3.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`.
 
 Đã chốt (xem `docs/adr/0001-web-stack-fork-pixel-office.md`):
 - **Toàn bộ là web**, không dùng Unity (dù repo nằm trong thư mục `UnityProject/`). Không tạo asset/scene/script Unity.

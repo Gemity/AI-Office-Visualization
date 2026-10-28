@@ -18,6 +18,7 @@ from office_contracts.adapter import (
     RunState,
 )
 from office_contracts.events import Event, EventType
+from office_contracts.policy import ApprovalScope, RiskAction
 
 # Models exported as JSON Schema files under packages/contracts/schemas/.
 SCHEMA_MODELS = {
@@ -29,6 +30,7 @@ SCHEMA_MODELS = {
     "cancel-result": CancelResult,
     "agent-event": AgentEvent,
     "artifact-ref": ArtifactRef,
+    "approval-scope": ApprovalScope,
 }
 
 __all__ = [
@@ -39,6 +41,7 @@ __all__ = [
     "AgentInvocation",
     "AgentResult",
     "AgentStatus",
+    "ApprovalScope",
     "ArtifactRef",
     "CancelResult",
     "Capability",
@@ -51,5 +54,6 @@ __all__ = [
     "InvocationLimits",
     "InvocationMode",
     "ObservabilityLevel",
+    "RiskAction",
     "RunState",
 ]

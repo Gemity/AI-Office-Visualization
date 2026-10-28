@@ -9,7 +9,7 @@ decides, the runtime owns state).
 import json
 from typing import Any, Literal
 
-from office_contracts import Capability
+from office_contracts import Capability, RiskAction
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -40,6 +40,10 @@ class PlannedTask(BaseModel):
     )
     turn_limit: int | None = Field(
         description="meeting/dm: total speaking turns (2-12), or null for the default; work: null."
+    )
+    risk_actions: list[RiskAction] = Field(
+        description="work: high-risk actions this task performs (needs Owner approval before it "
+        "runs); [] if none. meeting/dm: []."
     )
 
 
@@ -72,6 +76,9 @@ class ActionItem(BaseModel):
     instructions: str = Field(description="Complete, self-contained instructions for a worker.")
     capabilities: list[Capability] = Field(min_length=1)
     assignee_id: str | None = Field(description="Preferred participant id, or null.")
+    risk_actions: list[RiskAction] = Field(
+        description="High-risk actions this item performs; [] if none."
+    )
 
 
 class MeetingOutcome(BaseModel):
@@ -115,6 +122,7 @@ def validate_plan(output: OrchestratorOutput, worker_ids: set[str]) -> list[Plan
             if t.type == "meeting" and len(people) < 2:
                 raise PlanError(f"meeting {t.key} needs at least 2 participants")
             t.participants = people
+            t.risk_actions = []
             t.turn_limit = max(2, min(t.turn_limit or DEFAULT_TURNS[t.type], MAX_TURNS))
     ordered, done = [], set()
     while len(ordered) < len(tasks):
@@ -146,6 +154,9 @@ Rules:
 - When the Owner asks to pause, resume, cancel or change an open task, add an
   intervention with that task's id. Do not claim it took effect: it is applied
   asynchronously and confirmed separately.
+- Mark a work task's risk_actions when it would deploy to production, make a
+  payment, delete data or export sensitive data. The runtime then holds it until
+  the Owner approves; tell the Owner that approval is needed.
 - Never claim work is done unless the results below show it completed.
 
 Project: {project_name}

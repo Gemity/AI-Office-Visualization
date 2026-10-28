@@ -20,6 +20,7 @@
     <select id="projectSelect" class="po-select" aria-label="Project"></select>
     <button id="newProject" class="po-btn" type="button">+ Project</button>
     <span id="connPill" class="po-pill off">offline</span>
+    <button id="approvalPill" class="po-pill po-approval-pill" type="button" hidden></button>
     <button id="projectPause" class="po-btn" type="button" hidden></button>
     <div class="tools"><button id="logout" class="po-btn ghost" type="button">Đăng xuất</button></div>
   </header>
@@ -36,12 +37,15 @@
         <button data-tab="chat" class="active" type="button">Chat</button>
         <button data-tab="tasks" type="button">Task</button>
         <button data-tab="talks" type="button">Họp &amp; DM</button>
+        <button data-tab="artifacts" type="button">Artifact</button>
+        <button data-tab="metrics" type="button">Chi phí</button>
         <button data-tab="timeline" type="button">Timeline</button>
         <button data-tab="agents" type="button">Agent</button>
         <button data-tab="agent" type="button" hidden id="agentTabBtn">Chi tiết</button>
       </nav>
 
       <section class="po-tab active" id="tab-chat">
+        <div id="approvalBox"></div>
         <div class="po-log" id="chatLog"></div>
         <div class="po-busy" id="orchBusy" hidden></div>
         <form class="po-compose" id="chatForm">
@@ -57,6 +61,13 @@
         <div id="talkList"></div>
         <div id="talkView"></div>
       </section>
+
+      <section class="po-tab" id="tab-artifacts">
+        <div id="artifactList"></div>
+        <div id="artifactView"></div>
+      </section>
+
+      <section class="po-tab" id="tab-metrics"><div id="metricsView"></div></section>
 
       <section class="po-tab" id="tab-timeline">
         <div class="po-row"><select id="tlFilter" class="po-select"></select><span class="po-muted" id="tlCount"></span></div>

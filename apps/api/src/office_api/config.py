@@ -29,4 +29,7 @@ class Settings:
     retry_backoff_s: float = 5.0  # delay before attempt n+1 = backoff * 2**(n-1)
     max_turn_attempts: int = 3  # orchestrator turns
     conversation_time_limit_s: float = 900  # whole meeting / dm
+    # How long the Owner has to decide on (and the runtime to use) an approval;
+    # a project can override it with config["approval_ttl_s"].
+    approval_ttl_s: float = 3600
     dispatch_interval_s: float = 1.0  # dispatcher also wakes immediately on changes

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/approval-scope.schema.json",
+  "$defs": {
+    "RiskAction": {
+      "enum": [
+        "deploy_production",
+        "payment",
+        "delete_data",
+        "export_sensitive_data"
+      ],
+      "title": "RiskAction",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "What one approval authorizes: one run of one task, by one agent, with\nexactly these instructions. Any change needs a new approval.",
+  "properties": {
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "actions": {
+      "items": {
+        "$ref": "#/$defs/RiskAction"
+      },
+      "minItems": 1,
+      "title": "Actions",
+      "type": "array"
+    },
+    "agent_id": {
+      "description": "Worker that will perform the actions.",
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "instructions_sha256": {
+      "description": "Hash of the task instructions approved.",
+      "title": "Instructions Sha256",
+      "type": "string"
+    },
+    "summary": {
+      "description": "Human-readable description shown to the approver.",
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "actions",
+    "agent_id",
+    "instructions_sha256",
+    "summary"
+  ],
+  "title": "ApprovalScope",
+  "type": "object"
+}

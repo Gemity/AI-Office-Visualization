@@ -8,7 +8,16 @@ from office_api import errors
 from office_api.config import Settings
 from office_api.db import Base, create_engine, create_sessionmaker
 from office_api.events import EventBroker
-from office_api.routes import agents, events, interventions, orchestrator, projects, work
+from office_api.routes import (
+    agents,
+    approvals,
+    events,
+    interventions,
+    metrics,
+    orchestrator,
+    projects,
+    work,
+)
 from office_api.runtime import Runtime
 from office_api.storage import ContentStore
 
@@ -41,6 +50,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(orchestrator.router)
     app.include_router(work.router)
     app.include_router(interventions.router)
+    app.include_router(approvals.router)
+    app.include_router(metrics.router)
 
     @app.get("/healthz", tags=["meta"])
     async def healthz():

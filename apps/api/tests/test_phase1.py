@@ -30,7 +30,9 @@ def wait_until(fn, timeout=10.0, interval=0.05):
         time.sleep(interval)
 
 
-def task(key_, title, caps, deps=(), assignee=None, type_="work", participants=None, turns=None):
+def task(
+    key_, title, caps, deps=(), assignee=None, type_="work", participants=None, turns=None, risk=()
+):
     return {
         "key": key_,
         "type": type_,
@@ -41,6 +43,7 @@ def task(key_, title, caps, deps=(), assignee=None, type_="work", participants=N
         "assignee_id": assignee,
         "participants": participants,
         "turn_limit": turns,
+        "risk_actions": list(risk),
     }
 
 

@@ -14,27 +14,31 @@ function el(tag, cls, text) {
 }
 
 const TASK_STATUS = {
-  waiting: "chờ phụ thuộc", pending: "sẵn sàng", active: "đang chạy", paused: "tạm dừng",
+  waiting: "chờ phụ thuộc", pending: "sẵn sàng", awaiting_approval: "chờ duyệt", active: "đang chạy", paused: "tạm dừng",
   blocked: "bị chặn", completed: "hoàn thành", failed: "thất bại", cancelled: "đã hủy",
 };
 const KIND_ICON = { work: "🛠", meeting: "👥", dm: "💬", plan: "📋" };
 const IV_ACTION = { pause: "tạm dừng", resume: "tiếp tục", cancel: "hủy", redirect: "chuyển hướng" };
+const APPROVAL_STATUS = { pending: "chờ duyệt", approved: "đã duyệt", rejected: "bị từ chối", expired: "hết hạn", cancelled: "đã rút lại" };
+const RISK_LABEL = { deploy_production: "deploy production", payment: "thanh toán", delete_data: "xóa dữ liệu", export_sensitive_data: "xuất dữ liệu nhạy cảm" };
 const IV_STATUS = { requested: "đã yêu cầu — chờ xác nhận", applied: "đã áp dụng", rejected: "bị từ chối" };
 const EVENT_LABEL = {
   "project.created": "Tạo project", "agent.assigned": "Gán agent", "task.created": "Tạo task",
   "task.started": "Bắt đầu task", "task.blocked": "Task bị chặn", "task.completed": "Hoàn thành",
   "message.sent": "Tin nhắn", "meeting.started": "Bắt đầu họp", "meeting.ended": "Kết thúc họp",
   "decision.recorded": "Quyết định", "artifact.created": "Artifact", "approval.requested": "Xin duyệt",
-  "approval.resolved": "Đã duyệt", "run.failed": "Run lỗi", "intervention.requested": "Yêu cầu can thiệp",
+  "approval.resolved": "Kết quả duyệt", "run.failed": "Run lỗi", "intervention.requested": "Yêu cầu can thiệp",
   "intervention.applied": "Can thiệp xử lý",
 };
-const ADAPTER_COLOR = { "claude-agent-sdk": "#d97757", "codex-cli": "#10a37f", mock: "#7aa2f7" };
+const ADAPTER_COLOR = { "claude-agent-sdk": "#d97757", "codex-cli": "#10a37f", mock: "#7aa2f7", "mock-suno": "#c792ea", "mock-tripo": "#89ddff" };
+const JOB_POLL_MS = 2000; // async jobs report progress through the API, not through events
 const ERROR_SHOW_MS = 8000;
 const TIMELINE_MAX = 1500;
 
 const state = {
   token: null, projects: [], pid: null, project: null,
   agents: [], tasks: [], convs: [], meetings: [], interventions: [], artifacts: [], adapters: [],
+  approvals: [], metrics: null, artifact: null, artifactUrl: null, jobPoll: null,
   events: [], lastSeq: 0, chat: [], ws: null, wsTimer: null,
   openTasks: new Set(), talk: null, selectedAgent: null, errorUntil: new Map(), filter: "",
 };
@@ -112,11 +116,18 @@ function renderRoster() {
     chip.type = "button";
     chip.append(el("span", "po-dot " + st), el("span", "rn", a.name));
     const run = a.current_runs[0];
-    const label = run ? (run.purpose === "orchestrator_turn" ? "đang trả lời" : run.purpose === "conversation_turn" ? "đang phát biểu" : "đang làm task") : st === "error" ? "lỗi" : "rảnh";
+    const label = run ? runLabel(run) : st === "error" ? "lỗi" : "rảnh";
     chip.append(el("span", "rs " + st, label));
     chip.onclick = () => selectAgent(a.id);
     host.append(chip);
   }
+}
+
+function runLabel(run) {
+  if (run.purpose === "orchestrator_turn") return "đang trả lời";
+  if (run.purpose === "conversation_turn") return "đang phát biểu";
+  if (run.provider_ref) return run.progress != null ? `job ${Math.round(run.progress * 100)}%` : "job đang chờ";
+  return "đang làm task";
 }
 
 // ---------------------------------------------------------------- loading
@@ -136,7 +147,9 @@ async function openProject(pid) {
   Object.assign(state, {
     pid, events: [], lastSeq: 0, chat: [], talk: null, selectedAgent: null,
     agents: [], tasks: [], convs: [], meetings: [], interventions: [], artifacts: [],
+    approvals: [], metrics: null, artifact: null,
   });
+  $("artifactView").replaceChildren();
   state.openTasks.clear();
   state.errorUntil.clear();
   localStorageSet("po.project", pid);
@@ -153,17 +166,27 @@ const LOADERS = {
     state.agents = await api("GET", P("/agents"));
     syncOffice(); renderAgents(); renderAgentDetail(); renderBusy();
     if (state.agents.length !== known) renderTimeline(); // new names for already-rendered rows
+    scheduleJobPoll();
   },
   tasks: async () => { state.tasks = await api("GET", P("/tasks")); renderTasks(); renderAgentDetail(); },
   convs: async () => { state.convs = await api("GET", P("/conversations")); await loadChat(); renderTalks(); },
   meetings: async () => { state.meetings = await api("GET", P("/meetings")); syncOffice(); renderTalks(); },
   interventions: async () => { state.interventions = await api("GET", P("/interventions")); renderTasks(); },
-  artifacts: async () => { state.artifacts = await api("GET", P("/artifacts")); renderTasks(); },
+  artifacts: async () => { state.artifacts = await api("GET", P("/artifacts")); renderTasks(); renderArtifacts(); },
+  approvals: async () => { state.approvals = await api("GET", P("/approvals")); renderApprovals(); renderTasks(); },
+  metrics: async () => { state.metrics = await api("GET", P("/metrics")); renderMetrics(); },
 };
+
+// Job progress has no event of its own: while a provider job runs, re-read it.
+function scheduleJobPoll() {
+  const jobs = state.agents.some((a) => a.current_runs.some((r) => r.provider_ref));
+  if (!jobs || state.jobPoll) return;
+  state.jobPoll = setTimeout(() => { state.jobPoll = null; markDirty("agents", "tasks"); }, JOB_POLL_MS);
+}
 
 async function loadAll() {
   await LOADERS.agents(); // names first: everything else renders agent names
-  await Promise.all(["project", "tasks", "convs", "meetings", "interventions", "artifacts"].map((k) => LOADERS[k]()));
+  await Promise.all(["project", "tasks", "convs", "meetings", "interventions", "artifacts", "approvals"].map((k) => LOADERS[k]()));
 }
 
 async function loadChat() {
@@ -190,6 +213,7 @@ const dirty = new Set();
 let dirtyTimer = null;
 function markDirty(...keys) {
   keys.forEach((k) => dirty.add(k));
+  if ($("tab-metrics").classList.contains("active")) dirty.add("metrics");
   clearTimeout(dirtyTimer);
   dirtyTimer = setTimeout(async () => {
     const keysNow = [...dirty];
@@ -253,6 +277,7 @@ function handleEvent(e) {
   else if (t === "agent.assigned") markDirty("agents");
   else if (t.startsWith("intervention.")) markDirty("interventions", "tasks", "project", "agents");
   else if (t === "artifact.created") markDirty("artifacts");
+  else if (t.startsWith("approval.")) markDirty("approvals", "tasks");
 }
 
 // ---------------------------------------------------------------- top bar
@@ -360,6 +385,12 @@ function taskCard(t) {
 
   body.append(el("pre", null, t.description || "(không có mô tả)"));
   if (t.kind === "work" && t.required_capabilities.length) body.append(el("div", "po-muted", "Cần: " + t.required_capabilities.join(", ")));
+  if (t.risk_actions.length) body.append(el("div", "po-muted", "⚠ Rủi ro cao: " + t.risk_actions.map((r) => RISK_LABEL[r] || r).join(", ")));
+  for (const a of state.approvals.filter((x) => x.task_id === t.id)) {
+    const line = el("div", "po-iv");
+    line.append(statusBadge(a.status === "pending" ? "pending-approval" : a.status, `Duyệt: ${APPROVAL_STATUS[a.status] || a.status}`), ` ${a.actions.map((r) => RISK_LABEL[r] || r).join(", ")} · ${nameOf(a.agent_id)}`);
+    body.append(line);
+  }
   if (t.blocked_reason) body.append(el("div", "po-muted", "Lý do: " + t.blocked_reason));
   if (t.retry_at && t.status === "pending") body.append(el("div", "po-muted", "Thử lại lúc " + fmtTime(t.retry_at)));
   if (t.result_preview) { body.append(el("div", "po-muted", "Kết quả:"), el("pre", null, t.result_preview)); }
@@ -369,20 +400,30 @@ function taskCard(t) {
     for (const r of t.runs) {
       const err = r.error ? ` — ${r.error.code}: ${r.error.message}` : "";
       const cost = r.cost != null ? ` · $${r.cost.toFixed(4)}` : "";
-      body.append(el("div", null, `#${r.attempt} ${nameOf(r.agent_id)} · ${r.status}${cost}${err}`));
+      const job = r.provider_ref ? ` · job ${r.provider_ref}` : "";
+      body.append(el("div", null, `#${r.attempt} ${nameOf(r.agent_id)} · ${r.status}${job}${cost}${err}`));
+      if (r.provider_ref && r.progress != null && !r.finished_at) {
+        const bar = el("div", "po-progress");
+        bar.append(Object.assign(el("span"), { style: `width:${Math.round(r.progress * 100)}%` }));
+        body.append(bar);
+      }
     }
   }
   const arts = state.artifacts.filter((a) => a.task_id === t.id);
   if (arts.length) {
     body.append(el("div", "po-muted", "Artifacts:"));
-    for (const a of arts) body.append(el("div", null, `[${a.type}] ${decodeURI(a.uri.replace(/^file:\/\//, ""))}`));
+    for (const a of arts) {
+      const row = el("div", "po-link", `[${a.type}] ${a.name} v${a.version}`);
+      row.onclick = () => { switchTab("artifacts"); openArtifact(a.id); };
+      body.append(row);
+    }
   }
 
   const actions = el("div", "actions");
   const btn = (label, fn, cls = "") => { const b = el("button", "po-btn small " + cls, label); b.type = "button"; b.disabled = !!iv; b.onclick = fn; actions.append(b); };
-  if (["pending", "waiting", "active"].includes(t.status)) btn("⏸ Tạm dừng", () => intervene("pause", t.id));
+  if (["pending", "waiting", "awaiting_approval", "active"].includes(t.status)) btn("⏸ Tạm dừng", () => intervene("pause", t.id));
   if (t.status === "paused") btn("▶ Tiếp tục", () => intervene("resume", t.id));
-  if (["pending", "waiting", "active", "paused"].includes(t.status)) {
+  if (["pending", "waiting", "awaiting_approval", "active", "paused"].includes(t.status)) {
     if (t.kind === "work") btn("↪ Chuyển hướng", () => { const s = prompt("Chỉ dẫn mới cho task:"); if (s) intervene("redirect", t.id, s); });
     btn("✕ Hủy", () => { if (confirm(`Hủy task “${t.title}”?`)) intervene("cancel", t.id); }, "danger");
   }
@@ -397,6 +438,204 @@ async function intervene(action, taskId, instructions) {
   try { await api("POST", P("/interventions"), { action, task_id: taskId, instructions: instructions || null }); }
   catch (e) { alert(e.message); }
   markDirty("interventions", "tasks");
+}
+
+// ---------------------------------------------------------------- approvals (BR-07)
+
+function renderApprovals() {
+  const pending = state.approvals.filter((a) => a.status === "pending");
+  const pill = $("approvalPill");
+  pill.hidden = !pending.length;
+  pill.textContent = `⚠ ${pending.length} chờ duyệt`;
+  const box = $("approvalBox");
+  box.replaceChildren();
+  for (const a of pending) {
+    const task = a.task_id && taskById(a.task_id);
+    const card = el("div", "po-approval");
+    card.append(
+      el("h4", null, `Cần duyệt: ${a.actions.map((r) => RISK_LABEL[r] || r).join(", ")}`),
+      el("div", null, a.summary || (task ? task.title : "")),
+      el("div", "po-muted", `Agent: ${nameOf(a.agent_id)} · hết hạn lúc ${fmtTime(a.expires_at)}`),
+    );
+    const actions = el("div", "actions");
+    const approve = el("button", "po-btn small primary", "✔ Duyệt");
+    const reject = el("button", "po-btn small danger", "✕ Từ chối");
+    for (const [b, decision] of [[approve, "approve"], [reject, "reject"]]) {
+      b.type = "button";
+      b.onclick = async () => {
+        if (decision === "approve" && !confirm(`Cho phép ${nameOf(a.agent_id)} thực hiện: ${a.actions.map((r) => RISK_LABEL[r] || r).join(", ")}?`)) return;
+        approve.disabled = reject.disabled = true;
+        try { await api("POST", P(`/approvals/${a.id}/decision`), { decision }); }
+        catch (e) { alert(e.message); approve.disabled = reject.disabled = false; }
+        markDirty("approvals", "tasks");
+      };
+    }
+    actions.append(approve, reject);
+    card.append(actions);
+    box.append(card);
+  }
+}
+$("approvalPill").onclick = () => switchTab("chat");
+
+// ---------------------------------------------------------------- artifacts
+
+const fmtSize = (n) => (n == null ? "?" : n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+const TEXT_TYPES = new Set(["code", "document", "log"]);
+const TEXT_PREVIEW_MAX = 200_000;
+
+function renderArtifacts() {
+  const host = $("artifactList");
+  host.replaceChildren();
+  if (!state.artifacts.length) { host.append(el("p", "po-empty", "Chưa có artifact. File do worker tạo trong workspace của task sẽ xuất hiện ở đây.")); return; }
+  for (const a of [...state.artifacts].reverse()) {
+    const task = a.task_id && taskById(a.task_id);
+    const item = el("div", "po-list-item" + (state.artifact === a.id ? " selected" : ""));
+    item.append(
+      el("div", null, `[${a.type}] ${a.name} · v${a.version}`),
+      el("div", "po-muted", `${nameOf(a.agent_id)} · ${task ? `“${task.title}”` : "—"} · ${fmtSize(a.size_bytes)} · ${fmtTime(a.created_at)}`),
+    );
+    item.onclick = () => openArtifact(a.id);
+    host.append(item);
+  }
+}
+
+async function artifactBlob(a) {
+  const res = await fetch(P(`/artifacts/${a.id}/content`), { headers: { Authorization: `Bearer ${state.token}` } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error?.message || res.statusText);
+  }
+  return res.blob();
+}
+
+async function openArtifact(id) {
+  state.artifact = id;
+  renderArtifacts();
+  const a = state.artifacts.find((x) => x.id === id);
+  const view = $("artifactView");
+  view.className = "po-art-view";
+  view.replaceChildren(el("p", "po-muted", "Đang tải…"));
+  if (!a) return;
+  let blob;
+  try { blob = await artifactBlob(a); }
+  catch (e) { view.replaceChildren(el("p", "po-error", `Không đọc được artifact: ${e.message}`)); return; }
+  if (state.artifact !== id) return;
+  const task = a.task_id && taskById(a.task_id);
+  view.replaceChildren(
+    el("h4", null, a.name),
+    el("div", "po-muted", `Nguồn: ${nameOf(a.agent_id)} · task ${task ? `“${task.title}”` : "—"} · run ${a.run_id || "—"}`),
+    el("div", "po-muted", `${a.mime_type || "?"} · ${fmtSize(a.size_bytes)} · ${a.checksum || ""}`),
+  );
+  // Agent output is untrusted: only media types the browser renders inertly get an
+  // object URL; everything else is shown as text (never as HTML) or downloaded.
+  if (state.artifactUrl) URL.revokeObjectURL(state.artifactUrl);
+  const url = (state.artifactUrl = URL.createObjectURL(blob));
+  if (a.type === "audio" && /^audio\//.test(a.mime_type || "")) {
+    view.append(Object.assign(document.createElement("audio"), { controls: true, src: url }));
+  } else if (a.type === "image" && /^image\/(png|jpeg|gif|webp)$/.test(a.mime_type || "")) {
+    view.append(Object.assign(document.createElement("img"), { src: url, alt: a.name }));
+  } else if (a.type === "3d" && a.name.toLowerCase().endsWith(".obj")) {
+    const text = await blob.text();
+    const canvas = document.createElement("canvas");
+    view.append(canvas);
+    drawObj(canvas, text, id);
+  } else if (TEXT_TYPES.has(a.type) && blob.size <= TEXT_PREVIEW_MAX) {
+    view.append(el("pre", "po-pre", await blob.text()));
+  } else {
+    view.append(el("p", "po-muted", "Không có bản xem trước cho loại file này."));
+  }
+  const dl = Object.assign(el("a", "po-btn small", "⬇ Tải về"), { href: url, download: a.name });
+  view.append(dl);
+}
+
+// Minimal OBJ wireframe viewer (vertices + faces), slowly rotating.
+function drawObj(canvas, text, artifactId) {
+  const verts = [], edges = [];
+  for (const line of text.split("\n")) {
+    const p = line.trim().split(/\s+/);
+    if (p[0] === "v") verts.push(p.slice(1, 4).map(Number));
+    if (p[0] === "f") {
+      const idx = p.slice(1).map((x) => parseInt(x, 10) - 1);
+      idx.forEach((v, i) => edges.push([v, idx[(i + 1) % idx.length]]));
+    }
+  }
+  if (!verts.length) return;
+  const center = [0, 1, 2].map((k) => verts.reduce((s, v) => s + v[k], 0) / verts.length);
+  const radius = Math.max(...verts.map((v) => Math.hypot(v[0] - center[0], v[1] - center[1], v[2] - center[2]))) || 1;
+  const ctx = canvas.getContext("2d");
+  const t0 = performance.now();
+  const frame = () => {
+    if (!canvas.isConnected || state.artifact !== artifactId) return;
+    const w = (canvas.width = canvas.clientWidth), h = (canvas.height = canvas.clientHeight);
+    const a = (performance.now() - t0) / 2000, tilt = 0.45;
+    const scale = Math.min(w, h) * 0.38 / radius;
+    const proj = verts.map(([x, y, z]) => {
+      [x, y, z] = [x - center[0], y - center[1], z - center[2]];
+      const x1 = x * Math.cos(a) + z * Math.sin(a), z1 = -x * Math.sin(a) + z * Math.cos(a);
+      const y1 = y * Math.cos(tilt) - z1 * Math.sin(tilt);
+      return [w / 2 + x1 * scale, h / 2 - y1 * scale];
+    });
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = "#89ddff";
+    ctx.beginPath();
+    for (const [i, j] of edges) {
+      if (!proj[i] || !proj[j]) continue;
+      ctx.moveTo(...proj[i]);
+      ctx.lineTo(...proj[j]);
+    }
+    ctx.stroke();
+    requestAnimationFrame(frame);
+  };
+  frame();
+}
+
+// ---------------------------------------------------------------- metrics / audit
+
+function renderMetrics() {
+  const host = $("metricsView");
+  const m = state.metrics;
+  host.replaceChildren();
+  if (!m) return;
+  const cards = el("div", "po-cards");
+  const stat = (label, value) => { const c = el("div", "po-card-stat"); c.append(el("b", null, String(value)), el("span", "po-muted", label)); cards.append(c); };
+  stat("chi phí đã báo (USD)", `$${m.cost_usd.toFixed(4)}`);
+  stat("run không báo chi phí", m.runs_without_cost);
+  stat("tổng run", m.runs);
+  stat("lần thử lại", m.retries);
+  stat("run lỗi", m.run_failures);
+  stat("artifact", Object.values(m.artifacts_by_type).reduce((a, b) => a + b, 0));
+  stat("sự kiện", m.events);
+  host.append(cards);
+
+  const kv = (title, obj, labels = {}) => {
+    const entries = Object.entries(obj);
+    host.append(el("h4", null, title));
+    host.append(el("div", "po-muted", entries.length ? entries.map(([k, v]) => `${labels[k] || k}: ${v}`).join(" · ") : "—"));
+  };
+  kv("Task", m.tasks_by_status, TASK_STATUS);
+  kv("Phê duyệt", m.approvals_by_status, APPROVAL_STATUS);
+  kv("Can thiệp", m.interventions_by_status, { requested: "đã yêu cầu", applied: "đã áp dụng", rejected: "bị từ chối" });
+  kv("Artifact theo loại", m.artifacts_by_type);
+
+  host.append(el("h4", null, "Theo agent"));
+  const table = el("table", "po-table");
+  const head = el("tr");
+  for (const [h, num] of [["Agent", false], ["Run", true], ["OK", true], ["Lỗi", true], ["Thử lại", true], ["Giây", true], ["USD", true]]) head.append(el("th", num ? "num" : null, h));
+  table.append(head);
+  for (const a of m.agents) {
+    const row = el("tr");
+    const finished = a.runs - (a.runs_by_status.running || 0) - (a.runs_by_status.queued || 0);
+    const cost = !a.cost_usd && a.runs_without_cost >= finished ? "không rõ"
+      : `$${a.cost_usd.toFixed(4)}${a.runs_without_cost ? ` (+${a.runs_without_cost} không rõ)` : ""}`;
+    row.append(
+      el("td", null, `${a.name} · ${a.adapter_type}`),
+      el("td", "num", a.runs), el("td", "num", a.runs_by_status.succeeded || 0), el("td", "num", a.runs_by_status.failed || 0),
+      el("td", "num", a.retries), el("td", "num", a.busy_seconds), el("td", "num", cost),
+    );
+    table.append(row);
+  }
+  host.append(table);
+  host.append(el("p", "po-muted", "Chỉ cộng chi phí do provider/adapter báo; run không báo chi phí được đếm riêng, không coi là $0."));
 }
 
 // ---------------------------------------------------------------- meetings & DMs
@@ -587,6 +826,7 @@ function renderAgentDetail() {
 // ---------------------------------------------------------------- tabs & auth
 
 function switchTab(name) {
+  if (name === "metrics" && state.pid) markDirty("metrics");
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
   document.querySelectorAll(".po-tab").forEach((s) => s.classList.toggle("active", s.id === "tab-" + name));
 }

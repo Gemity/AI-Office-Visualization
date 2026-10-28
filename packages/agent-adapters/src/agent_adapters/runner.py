@@ -49,6 +49,7 @@ class RunContext:
         self.handle_id = handle_id
         self.invocation = invocation
         self.provider_ref: str | None = None
+        self.progress: float | None = None
         self._events: list[AgentEvent] = []
         self._changed = asyncio.Condition()
 
@@ -109,6 +110,7 @@ class TaskBackedAdapter:
         return AgentStatus(
             handle_id=handle_id,
             state=run.state,
+            progress=run.ctx.progress,
             error=run.error,
             result=run.result,
             observed_at=datetime.now(UTC),

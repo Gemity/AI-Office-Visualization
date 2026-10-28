@@ -43,6 +43,8 @@ class CurrentRun(BaseModel):
     status: str
     task_id: str | None
     purpose: str
+    provider_ref: str | None = Field(default=None, description="Provider job/session id.")
+    progress: float | None = Field(default=None, description="As reported by the provider.")
 
 
 class AgentOut(BaseModel):
@@ -161,7 +163,14 @@ async def list_agents(project_id: str, member: Membership, session: Session):
     out = []
     for agent, assignment in rows:
         current = [
-            CurrentRun(run_id=r.id, status=r.status, task_id=r.task_id, purpose=r.purpose)
+            CurrentRun(
+                run_id=r.id,
+                status=r.status,
+                task_id=r.task_id,
+                purpose=r.purpose,
+                provider_ref=r.provider_ref,
+                progress=r.progress,
+            )
             for r in runs
             if r.agent_id == agent.id
         ]

@@ -1,11 +1,14 @@
 """Read models for the task board, conversations, meetings and artifacts (spec §11-12)."""
 
+import hashlib
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
+from urllib.parse import quote, unquote, urlparse
 
-from fastapi import APIRouter, Query, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Query, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from office_api.auth import Membership, Session
@@ -20,7 +23,7 @@ from office_api.models import (
     Task,
     TaskDependency,
 )
-from office_api.storage import preview
+from office_api.storage import preview, workspace_root
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["work"])
 
@@ -30,6 +33,8 @@ class RunOut(BaseModel):
     agent_id: str
     status: str
     attempt: int
+    provider_ref: str | None
+    progress: float | None
     error: dict | None
     cost: float | None
     started_at: datetime | None
@@ -46,6 +51,7 @@ class TaskOut(BaseModel):
     status: str
     blocked_reason: str | None
     required_capabilities: list[str]
+    risk_actions: list[str]
     assignee_id: str | None
     depends_on: list[str]
     attempts: int
@@ -78,8 +84,12 @@ class ArtifactOut(BaseModel):
     id: str
     task_id: str | None
     run_id: str | None
+    agent_id: str | None = Field(description="Worker whose run produced it (provenance).")
     type: str
+    name: str
     uri: str
+    mime_type: str | None
+    size_bytes: int | None
     checksum: str | None
     version: int
     created_at: datetime
@@ -123,6 +133,7 @@ async def list_tasks(
             status=t.status,
             blocked_reason=t.blocked_reason,
             required_capabilities=t.required_capabilities,
+            risk_actions=t.risk_actions,
             assignee_id=t.assignee_id,
             depends_on=[d for task_id, d in deps if task_id == t.id],
             attempts=t.attempts,
@@ -134,6 +145,8 @@ async def list_tasks(
                     agent_id=r.agent_id,
                     status=r.status,
                     attempt=r.attempt,
+                    provider_ref=r.provider_ref,
+                    progress=r.progress,
                     error=r.error,
                     cost=r.cost,
                     started_at=r.started_at,
@@ -214,22 +227,74 @@ async def list_messages(
 
 @router.get("/artifacts", response_model=list[ArtifactOut])
 async def list_artifacts(project_id: str, member: Membership, session: Session):
-    rows = await session.scalars(
-        select(Artifact).where(Artifact.project_id == project_id).order_by(Artifact.created_at)
-    )
+    rows = (
+        await session.execute(
+            select(Artifact, AgentRun.agent_id)
+            .outerjoin(
+                AgentRun,
+                (AgentRun.project_id == Artifact.project_id) & (AgentRun.id == Artifact.run_id),
+            )
+            .where(Artifact.project_id == project_id)
+            .order_by(Artifact.created_at)
+        )
+    ).all()
     return [
         ArtifactOut(
             id=a.id,
             task_id=a.task_id,
             run_id=a.run_id,
+            agent_id=agent_id,
             type=a.type,
+            name=a.name,
             uri=a.uri,
+            mime_type=a.mime_type,
+            size_bytes=a.size_bytes,
             checksum=a.checksum,
             version=a.version,
             created_at=a.created_at,
         )
-        for a in rows
+        for a, agent_id in rows
     ]
+
+
+@router.get(
+    "/artifacts/{artifact_id}/content",
+    response_class=Response,
+    responses={200: {"content": {"application/octet-stream": {}}}},
+)
+async def artifact_content(
+    project_id: str,
+    artifact_id: str,
+    request: Request,
+    member: Membership,
+    session: Session,
+    download: Annotated[bool, Query()] = False,
+):
+    """The artifact's bytes, only if the file still matches the recorded checksum
+    and lies inside this project's workspace (BR-04)."""
+    artifact = await session.get(Artifact, artifact_id)
+    if artifact is None or artifact.project_id != project_id:
+        raise ApiError(404, "artifact_not_found", "Artifact not found")
+    root = workspace_root(request.app.state.runtime.settings.data_dir, project_id)
+    path = Path(unquote(urlparse(artifact.uri).path)).resolve()
+    if urlparse(artifact.uri).scheme != "file" or not path.is_relative_to(root):
+        raise ApiError(404, "artifact_unavailable", "Artifact content is not stored locally")
+    if not path.is_file():
+        raise ApiError(410, "artifact_gone", "Artifact file no longer exists")
+    data = path.read_bytes()
+    if artifact.checksum and "sha256:" + hashlib.sha256(data).hexdigest() != artifact.checksum:
+        raise ApiError(409, "artifact_changed", "File changed since this artifact version")
+    return Response(
+        content=data,
+        media_type=artifact.mime_type or "application/octet-stream",
+        headers={
+            "Content-Disposition": f"{'attachment' if download else 'inline'}; "
+            f"filename*=UTF-8''{quote(artifact.name or path.name)}",
+            "X-Content-Type-Options": "nosniff",
+            # Agent output is untrusted: never let it run as this origin.
+            "Content-Security-Policy": "sandbox; default-src 'none'; media-src 'self'",
+        },
+    )
 
 
 class MeetingOut(BaseModel):
