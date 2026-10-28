@@ -8,7 +8,9 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
+from office_api import budget
 from office_api.auth import Membership, Session
+from office_api.budget import ProjectBudget
 from office_api.models import (
     AgentDefinition,
     AgentRun,
@@ -16,6 +18,7 @@ from office_api.models import (
     Artifact,
     EventRow,
     Intervention,
+    Project,
     Task,
 )
 
@@ -47,6 +50,8 @@ class ProjectMetrics(BaseModel):
     interventions_by_status: dict[str, int]
     artifacts_by_type: dict[str, int]
     events: int
+    budget: ProjectBudget = Field(description="Configured limits (null/absent = unlimited).")
+    over_budget: bool = Field(description="Project spend reached max_cost_usd.")
     agents: list[AgentMetrics]
 
 
@@ -100,6 +105,7 @@ async def project_metrics(project_id: str, member: Membership, session: Session)
             )
         )
     agent_rows.sort(key=lambda a: (-a.cost_usd, -a.runs))
+    project = await session.get(Project, project_id)
     total = summary(list(runs))
     return ProjectMetrics(
         cost_usd=total["cost_usd"],
@@ -120,6 +126,8 @@ async def project_metrics(project_id: str, member: Membership, session: Session)
             Intervention.status, Intervention.project_id == project_id
         ),
         artifacts_by_type=await count_by(Artifact.type, Artifact.project_id == project_id),
+        budget=budget.limits(project),
+        over_budget=budget.project_over(project, await budget.spend(session, project_id)),
         events=await session.scalar(
             select(func.count()).select_from(EventRow).where(EventRow.project_id == project_id)
         ),

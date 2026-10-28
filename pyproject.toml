@@ -20,7 +20,7 @@ office-contracts = { workspace = true }
 agent-adapters = { workspace = true }
 
 [tool.pytest.ini_options]
-testpaths = ["apps/api/tests", "packages/agent-adapters/tests"]
+testpaths = ["apps/api/tests", "packages/agent-adapters/tests", "tests/e2e"]
 addopts = "-q"
 
 [tool.ruff]
@@ -29,3 +29,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic autogenerate output: long one-line column/index definitions.
+"apps/api/src/office_api/migrations/versions/*.py" = ["E501"]
+# e2e modules import the `server` fixture from harness.py (no conftest there:
+# it would collide with apps/api/tests/conftest.py).
+"tests/e2e/test_*.py" = ["F811"]

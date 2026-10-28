@@ -1,0 +1,35 @@
+# AI Project Office — local-first, one user (ADR-0006). Template: not installed
+# automatically; see docs/deploy-local.md. Assumes the repo at
+# ~/UnityProject/AI-Office-Visualization — adjust WorkingDirectory otherwise.
+#
+#   cp infra/systemd/ai-project-office*.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ai-project-office.service ai-project-office-backup.timer
+
+[Unit]
+Description=AI Project Office (API + UI on 127.0.0.1)
+After=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=%h/UnityProject/AI-Office-Visualization
+# uv and the claude/codex CLIs live in ~/.local/bin; bwrap in /usr/bin.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=OFFICE_DATABASE_URL=sqlite+aiosqlite:///%h/.local/share/ai-project-office/office.db
+Environment=OFFICE_DATA_DIR=%h/.local/share/ai-project-office/data
+# Optional overrides (e.g. OFFICE_SANDBOX=none); never put tokens here.
+EnvironmentFile=-%h/.config/ai-project-office/env
+UMask=0077
+ExecStartPre=/usr/bin/mkdir -p %h/.local/share/ai-project-office
+ExecStartPre=%h/.local/bin/uv run --frozen office-api migrate
+# Keep the bind on loopback: the UI token travels in the WebSocket URL.
+ExecStart=%h/.local/bin/uv run --frozen office-api serve --host 127.0.0.1 --port 8000
+# SIGTERM = graceful: running async jobs are detached (not cancelled) and
+# re-attached on the next start.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

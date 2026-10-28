@@ -10,16 +10,38 @@ Config:
   effort: str                    low | medium | high | xhigh | max
   capabilities: list[str]        default ["chat", "code"]
   system_prompt: str             appended role description
+  cli_path: str                  Claude Code CLI; default: the SDK's bundled CLI or `claude`
+
+With ``invocation.sandbox.mode == 'bwrap'`` the CLI runs inside bubblewrap
+(see sandbox.py); it may additionally write its own state (~/.claude*).
 """
 
+import shutil
 import tempfile
+from pathlib import Path
 from typing import Any
 
 from office_contracts import AgentEventKind, AgentResult, CapabilityManifest
 
+from agent_adapters import sandbox
 from agent_adapters.runner import AdapterRunError, RunContext, TaskBackedAdapter
 
 DEFAULT_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
+# The CLI keeps sessions/auth/config here; it must be able to write them.
+CLI_STATE = ["~/.claude", "~/.claude.json", "~/.claude.json.backup", "~/.cache/claude"]
+
+
+def _real_cli(configured: str | None) -> str:
+    if configured:
+        return configured
+    import claude_agent_sdk
+
+    bundled = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+    if bundled.is_file():
+        return str(bundled)
+    if found := shutil.which("claude"):
+        return found
+    raise AdapterRunError("cli_not_found", "Claude Code CLI not found", retryable=False)
 
 
 class ClaudeAgentSdkAdapter(TaskBackedAdapter):
@@ -42,7 +64,7 @@ class ClaudeAgentSdkAdapter(TaskBackedAdapter):
             supports_cancel=True,
         )
 
-    def build_options(self, ctx: RunContext) -> Any:
+    def build_options(self, ctx: RunContext, scratch: Path | None = None) -> Any:
         from claude_agent_sdk import ClaudeAgentOptions
 
         inv = ctx.invocation
@@ -71,22 +93,30 @@ class ClaudeAgentSdkAdapter(TaskBackedAdapter):
             options["max_budget_usd"] = inv.limits.max_cost
         if inv.output_schema is not None:
             options["output_format"] = {"type": "json_schema", "schema": inv.output_schema}
+        if inv.sandbox.mode != "none":
+            options["cli_path"] = sandbox.write_wrapper_script(
+                scratch or Path(tempfile.mkdtemp(prefix="claude-sbx-")),
+                _real_cli(self.config.get("cli_path")),
+                inv.sandbox,
+                CLI_STATE,
+            )
+        elif self.config.get("cli_path"):
+            options["cli_path"] = self.config["cli_path"]
         return ClaudeAgentOptions(**options)
 
     async def _execute(self, ctx: RunContext) -> AgentResult:
-        from claude_agent_sdk import (
-            AssistantMessage,
-            ResultMessage,
-            TextBlock,
-            ToolUseBlock,
-            query,
-        )
+        from claude_agent_sdk import query
 
         query_fn = self._query_fn or query
-        result: ResultMessage | None = None
-        async for message in query_fn(
-            prompt=ctx.invocation.instructions, options=self.build_options(ctx)
-        ):
+        with tempfile.TemporaryDirectory(prefix="claude-sbx-") as scratch:
+            result = await self._stream(ctx, query_fn, self.build_options(ctx, Path(scratch)))
+        return self._result(ctx, result)
+
+    async def _stream(self, ctx: RunContext, query_fn, options):
+        from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+
+        result = None
+        async for message in query_fn(prompt=ctx.invocation.instructions, options=options):
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock) and block.text.strip():
@@ -96,7 +126,9 @@ class ClaudeAgentSdkAdapter(TaskBackedAdapter):
             elif isinstance(message, ResultMessage):
                 result = message
                 ctx.provider_ref = message.session_id
+        return result
 
+    def _result(self, ctx: RunContext, result) -> AgentResult:
         if result is None:
             raise AdapterRunError("no_result", "SDK stream ended without a result", retryable=True)
         if result.is_error:

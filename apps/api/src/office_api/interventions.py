@@ -13,6 +13,7 @@ from office_contracts import EventType, RunState
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from office_api import budget
 from office_api.db import new_id, utcnow
 from office_api.events import append_event
 from office_api.models import AgentRun, Intervention, Project, Task, TaskDependency
@@ -84,6 +85,9 @@ class InterventionMixin:
             project = await s.get(Project, project_id)
             if action == "pause":
                 project.status = "paused"
+                if requested_by == "system" and instructions:
+                    await self._resolve(s, iv, "applied", instructions)  # circuit breaker
+                    return iv, turns
                 running = await s.scalar(
                     select(func.count())
                     .select_from(AgentRun)
@@ -93,6 +97,13 @@ class InterventionMixin:
                     s, iv, "applied", f"dispatch stopped; {running} running run(s) will finish"
                 )
             else:
+                used = await budget.spend(s, project_id)
+                if budget.project_over(project, used):
+                    raise InterventionError(
+                        409,
+                        "budget_exceeded",
+                        f"Project spent ${used.project:.4f}; raise the budget before resuming",
+                    )
                 project.status = "active"
                 await self._resolve(s, iv, "applied", "dispatch resumed")
             return iv, turns

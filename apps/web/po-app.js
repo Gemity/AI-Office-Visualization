@@ -171,7 +171,7 @@ const LOADERS = {
   tasks: async () => { state.tasks = await api("GET", P("/tasks")); renderTasks(); renderAgentDetail(); },
   convs: async () => { state.convs = await api("GET", P("/conversations")); await loadChat(); renderTalks(); },
   meetings: async () => { state.meetings = await api("GET", P("/meetings")); syncOffice(); renderTalks(); },
-  interventions: async () => { state.interventions = await api("GET", P("/interventions")); renderTasks(); },
+  interventions: async () => { state.interventions = await api("GET", P("/interventions")); renderTasks(); renderProjectBar(); },
   artifacts: async () => { state.artifacts = await api("GET", P("/artifacts")); renderTasks(); renderArtifacts(); },
   approvals: async () => { state.approvals = await api("GET", P("/approvals")); renderApprovals(); renderTasks(); },
   metrics: async () => { state.metrics = await api("GET", P("/metrics")); renderMetrics(); },
@@ -287,7 +287,11 @@ function renderProjectBar() {
   btn.hidden = !state.project;
   if (!state.project) return;
   const paused = state.project.status === "paused";
-  btn.textContent = paused ? "▶ Tiếp tục project" : "⏸ Tạm dừng project";
+  // Who paused it: the latest applied project-level pause (system = budget circuit breaker).
+  const pause = paused && state.interventions.filter((i) => !i.task_id && i.action === "pause" && i.status === "applied").at(-1);
+  const bySystem = pause && pause.requested_by === "system";
+  btn.textContent = paused ? `▶ Tiếp tục project${bySystem ? " (đã dừng: vượt ngân sách)" : ""}` : "⏸ Tạm dừng project";
+  btn.title = bySystem ? pause.outcome || "" : "";
   btn.classList.toggle("danger", !paused);
 }
 
@@ -594,6 +598,7 @@ function drawObj(canvas, text, artifactId) {
 function renderMetrics() {
   const host = $("metricsView");
   const m = state.metrics;
+  if (host.contains(document.activeElement) && document.activeElement.tagName === "INPUT") return; // don't wipe an edit
   host.replaceChildren();
   if (!m) return;
   const cards = el("div", "po-cards");
@@ -606,6 +611,7 @@ function renderMetrics() {
   stat("artifact", Object.values(m.artifacts_by_type).reduce((a, b) => a + b, 0));
   stat("sự kiện", m.events);
   host.append(cards);
+  renderBudget(host, m);
 
   const kv = (title, obj, labels = {}) => {
     const entries = Object.entries(obj);
@@ -636,6 +642,41 @@ function renderMetrics() {
   }
   host.append(table);
   host.append(el("p", "po-muted", "Chỉ cộng chi phí do provider/adapter báo; run không báo chi phí được đếm riêng, không coi là $0."));
+}
+
+function renderBudget(host, m) {
+  host.append(el("h4", null, "Ngân sách"));
+  if (m.over_budget) {
+    host.append(el("div", "po-approval", "⛔ Đã chạm trần ngân sách project: hệ thống tạm dừng dispatch. Nâng trần rồi tiếp tục project."));
+  }
+  const form = el("form", "po-budget");
+  const field = (label, value, id) => {
+    const input = el("input");
+    Object.assign(input, { type: "number", min: "0", step: "0.01", placeholder: "không giới hạn", value: value ?? "" });
+    input.dataset.agent = id || "";
+    const row = el("label", "po-row");
+    row.append(el("span", null, label), input);
+    form.append(row);
+  };
+  field("Trần project (USD)", m.budget.max_cost_usd);
+  for (const a of m.agents) field(`${a.name}`, m.budget.agents[a.agent_id], a.agent_id);
+  const save = el("button", "po-btn primary small", "Lưu ngân sách");
+  save.type = "submit";
+  form.append(save, el("span", "po-muted", " Để trống = không giới hạn. Chi phí chỉ biết khi run kết thúc nên run đang chạy có thể vượt trần."));
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const body = { max_cost_usd: null, agents: {} };
+    for (const input of form.querySelectorAll("input")) {
+      if (input.value === "") continue;
+      if (input.dataset.agent) body.agents[input.dataset.agent] = Number(input.value);
+      else body.max_cost_usd = Number(input.value);
+    }
+    save.disabled = true;
+    try { await api("PUT", P("/budget"), body); } catch (e) { alert(e.message); }
+    document.activeElement.blur();
+    markDirty("metrics", "project");
+  };
+  host.append(form);
 }
 
 // ---------------------------------------------------------------- meetings & DMs

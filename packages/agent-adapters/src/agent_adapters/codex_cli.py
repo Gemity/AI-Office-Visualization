@@ -10,6 +10,14 @@ Config:
   capabilities: list[str]     default ["chat", "code"]
   cli_path: str               default "codex"
   extra_args: list[str]       appended before the prompt
+
+With ``invocation.sandbox.mode == 'bwrap'`` the CLI runs inside bubblewrap
+(see sandbox.py) and bubblewrap is the only isolation layer: Codex's own Linux
+sandbox needs a nested user namespace, which hosts that restrict unprivileged
+user namespaces (Ubuntu AppArmor) refuse inside another sandbox. Codex is then
+started with ``danger-full-access`` *inside* bwrap: it can write only the
+workdir, its scratch dir and ~/.codex, and cannot see hidden paths; its shell
+commands do have network access (ADR-0006).
 """
 
 import asyncio
@@ -20,8 +28,10 @@ from typing import Any
 
 from office_contracts import AgentEventKind, AgentResult, CapabilityManifest
 
+from agent_adapters import sandbox
 from agent_adapters.runner import AdapterRunError, RunContext, TaskBackedAdapter
 
+CLI_STATE = ["~/.codex"]
 ALLOWED_SANDBOXES = {"read-only", "workspace-write"}  # never danger-full-access
 
 
@@ -57,8 +67,7 @@ class CodexCliAdapter(TaskBackedAdapter):
             "--skip-git-repo-check",
             "--ephemeral",
             "-s",
-            # No workdir (e.g. an Orchestrator turn): read-only in a scratch dir.
-            self.config.get("sandbox", "workspace-write") if inv.workdir else "read-only",
+            self._codex_sandbox(inv),
             "-o",
             str(tmp / "last_message.txt"),
             "-C",
@@ -72,7 +81,13 @@ class CodexCliAdapter(TaskBackedAdapter):
             cmd += ["--output-schema", str(schema_path)]
         cmd += list(self.config.get("extra_args", []))
         cmd.append("-")  # prompt from stdin: no argv length limits, not visible in ps
-        return cmd
+        return sandbox.wrap(cmd, inv.sandbox, [str(tmp), *CLI_STATE])
+
+    def _codex_sandbox(self, inv) -> str:
+        if inv.sandbox.mode == "bwrap":
+            return "danger-full-access"  # confined by the outer bwrap sandbox instead
+        # No workdir (e.g. an Orchestrator turn): read-only in a scratch dir.
+        return self.config.get("sandbox", "workspace-write") if inv.workdir else "read-only"
 
     async def _execute(self, ctx: RunContext) -> AgentResult:
         with tempfile.TemporaryDirectory(prefix="codex-run-") as tmpdir:

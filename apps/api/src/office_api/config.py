@@ -32,4 +32,11 @@ class Settings:
     # How long the Owner has to decide on (and the runtime to use) an approval;
     # a project can override it with config["approval_ttl_s"].
     approval_ttl_s: float = 3600
+    # OS sandbox for adapters that run local CLIs: "bwrap" (default) or "none" (ADR-0006).
+    sandbox: str = field(default_factory=lambda: os.environ.get("OFFICE_SANDBOX", "bwrap"))
+
+    def __post_init__(self):
+        if self.sandbox not in {"bwrap", "none"}:
+            raise ValueError("OFFICE_SANDBOX must be 'bwrap' or 'none'")
+
     dispatch_interval_s: float = 1.0  # dispatcher also wakes immediately on changes

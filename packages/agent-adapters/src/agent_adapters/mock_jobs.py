@@ -4,7 +4,10 @@ They stand in for Suno / Tripo until official APIs and quotas are verified
 (spec §18). Each adapter talks to an in-process ``MockJobService`` that behaves
 like a remote job API: jobs are queued, run with coarse progress, then succeed
 with generated files (a real WAV melody / a real OBJ mesh derived from the
-prompt), fail, or are cancelled. No network calls.
+prompt), fail, or are cancelled. No network calls. Like a remote provider, the
+service outlives the caller: each job is persisted (``.mockjob-<id>.json`` in
+the task workdir, a dot-file so it is never an artifact) and a new process can
+re-attach to it.
 
 Config (both):
   duration_s: float     job run time, default 3
@@ -15,16 +18,19 @@ Config (both):
 
 import hashlib
 import io
+import json
 import math
 import struct
 import time
 import uuid
 import wave
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 from office_contracts import AgentError, AgentInvocation, CapabilityManifest
 
 from agent_adapters.jobs import AsyncJobAdapter, JobStatus
+from agent_adapters.runner import AdapterRunError
 
 
 @dataclass
@@ -33,34 +39,49 @@ class MockJob:
     prompt: str
     submitted_at: float
     fails: bool
+    store: str = ""  # directory holding the job record
     state: str = "queued"
     cancelled_at: float | None = None
     outputs: dict[str, bytes] = field(default_factory=dict)
 
 
 class MockJobService:
-    """Provider-side job store; job state is a function of elapsed time."""
+    """Provider-side job store; job state is a function of elapsed wall-clock time."""
 
     def __init__(self, duration_s: float, make_outputs):
         self.duration_s = duration_s
         self.make_outputs = make_outputs  # prompt -> (outputs, message)
         self.jobs: dict[str, MockJob] = {}
 
-    def submit(self, prompt: str, fails: bool) -> str:
+    def submit(self, prompt: str, fails: bool, store: str) -> str:
         job = MockJob(
             id=f"job_{uuid.uuid4().hex[:16]}",
             prompt=prompt,
-            submitted_at=time.monotonic(),
+            submitted_at=time.time(),
             fails=fails,
+            store=store,
         )
         self.jobs[job.id] = job
+        self._save(job)
         return job.id
+
+    def attach(self, job_id: str, store: str) -> MockJob:
+        if job_id not in self.jobs:
+            path = Path(store) / f".mockjob-{job_id}.json"
+            if not path.is_file():
+                raise AdapterRunError("job_not_found", f"unknown job {job_id}", retryable=True)
+            self.jobs[job_id] = MockJob(**json.loads(path.read_text()))
+        return self.jobs[job_id]
+
+    def _save(self, job: MockJob) -> None:
+        record = {k: v for k, v in asdict(job).items() if k != "outputs"}
+        (Path(job.store) / f".mockjob-{job.id}.json").write_text(json.dumps(record))
 
     def poll(self, job_id: str) -> tuple[MockJob, float | None, str]:
         job = self.jobs[job_id]
         if job.state in {"succeeded", "failed", "cancelled"}:
             return job, 1.0 if job.state == "succeeded" else None, ""
-        elapsed = time.monotonic() - job.submitted_at
+        elapsed = time.time() - job.submitted_at
         queue_s = self.duration_s * 0.2
         if elapsed < queue_s:
             return job, None, ""
@@ -70,15 +91,18 @@ class MockJobService:
             return job, math.floor((elapsed - queue_s) / (self.duration_s - queue_s) * 10) / 10, ""
         if job.fails:
             job.state = "failed"
+            self._save(job)
             return job, None, ""
         job.outputs, message = self.make_outputs(job.prompt)
         job.state = "succeeded"
+        self._save(job)
         return job, 1.0, message
 
     def cancel(self, job_id: str) -> None:
         job = self.jobs[job_id]
         if job.state in {"queued", "running"}:
-            job.state, job.cancelled_at = "cancelled", time.monotonic()
+            job.state, job.cancelled_at = "cancelled", time.time()
+            self._save(job)
 
 
 class _MockJobAdapter(AsyncJobAdapter):
@@ -111,7 +135,10 @@ class _MockJobAdapter(AsyncJobAdapter):
     async def _submit(self, invocation: AgentInvocation) -> str:
         self._submitted += 1
         fails = self._submitted <= int(self.config.get("fail_first", 0))
-        return self.service.submit(invocation.instructions, fails)
+        return self.service.submit(invocation.instructions, fails, invocation.workdir)
+
+    async def _attach(self, invocation: AgentInvocation, job_id: str) -> None:
+        self.service.attach(job_id, invocation.workdir)
 
     async def _poll(self, job_id: str) -> JobStatus:
         job, progress, message = self.service.poll(job_id)

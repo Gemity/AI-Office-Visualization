@@ -90,6 +90,9 @@ class TaskBackedAdapter:
     # --- AgentAdapter -------------------------------------------------------
 
     async def invoke(self, request: AgentInvocation) -> InvocationHandle:
+        return self._start(request, self._execute)
+
+    def _start(self, request: AgentInvocation, execute) -> InvocationHandle:
         if (existing := self._by_key.get(request.idempotency_key)) is not None:
             run = self._runs[existing]
         else:
@@ -97,7 +100,7 @@ class TaskBackedAdapter:
             run = _Run(RunContext(handle_id, request))
             self._runs[handle_id] = run
             self._by_key[request.idempotency_key] = handle_id
-            run.task = asyncio.create_task(self._drive(run))
+            run.task = asyncio.create_task(self._drive(run, execute))
         return InvocationHandle(
             handle_id=run.ctx.handle_id,
             invocation_id=request.invocation_id,
@@ -158,11 +161,11 @@ class TaskBackedAdapter:
         except KeyError:
             raise KeyError(f"unknown handle {handle_id}") from None
 
-    async def _drive(self, run: _Run) -> None:
+    async def _drive(self, run: _Run, execute) -> None:
         run.state = RunState.RUNNING
         await run.ctx.emit(AgentEventKind.STATUS, state=run.state.value)
         try:
-            run.result = await self._execute(run.ctx)
+            run.result = await execute(run.ctx)
             run.artifacts = _scan_artifacts(run.ctx.invocation.workdir, run.started_at)
             run.state = RunState.SUCCEEDED
         except asyncio.CancelledError:

@@ -56,6 +56,50 @@
       ],
       "title": "InvocationMode",
       "type": "string"
+    },
+    "SandboxPolicy": {
+      "additionalProperties": false,
+      "description": "OS-level isolation for adapters that run local processes (spec \u00a713).\n\nWith ``mode='bwrap'`` the process sees the host filesystem read-only, can\nwrite only to ``writable`` paths, and ``hidden`` paths are masked (empty\ndir / empty file). Network stays available when ``network`` is true\n(provider CLIs must reach their API).",
+      "properties": {
+        "mode": {
+          "default": "none",
+          "enum": [
+            "none",
+            "bwrap"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "writable": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Writable",
+          "type": "array"
+        },
+        "readable": {
+          "description": "Re-exposed read-only inside hidden paths.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Readable",
+          "type": "array"
+        },
+        "hidden": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hidden",
+          "type": "array"
+        },
+        "network": {
+          "default": true,
+          "title": "Network",
+          "type": "boolean"
+        }
+      },
+      "title": "SandboxPolicy",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -157,6 +201,9 @@
       "default": null,
       "description": "JSON Schema the final output must match (structured output).",
       "title": "Output Schema"
+    },
+    "sandbox": {
+      "$ref": "#/$defs/SandboxPolicy"
     }
   },
   "required": [

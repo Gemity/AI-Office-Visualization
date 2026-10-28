@@ -9,16 +9,26 @@ contract:
   provider actually reports — never an estimate (BR-09);
 - cancel asks the provider to cancel the job; the run is ``cancelled`` once
   that request returned;
-- outputs are written to the invocation's ``workdir`` and become artifacts.
+- outputs are written to the invocation's ``workdir`` and become artifacts;
+- ``resume(request, provider_ref)`` re-attaches to an existing job (after a
+  restart) instead of submitting it again; ``detach()`` (on shutdown) stops
+  following jobs *without* cancelling them at the provider.
 
-Subclasses implement ``_submit`` / ``_poll`` / ``_cancel_job``.
+Subclasses implement ``_submit`` / ``_poll`` / ``_cancel_job`` (and
+``_attach`` if re-attaching needs provider-side lookup).
 """
 
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from office_contracts import AgentError, AgentEventKind, AgentInvocation, AgentResult
+from office_contracts import (
+    AgentError,
+    AgentEventKind,
+    AgentInvocation,
+    AgentResult,
+    InvocationHandle,
+)
 
 from agent_adapters.runner import AdapterRunError, RunContext, TaskBackedAdapter
 
@@ -38,6 +48,14 @@ class JobStatus:
 class AsyncJobAdapter(TaskBackedAdapter):
     poll_interval_s = 1.0
 
+    def __init__(self, config=None):
+        super().__init__(config)
+        self._detached = False
+
+    def detach(self) -> None:
+        """The process is going away: leave provider jobs running for resume()."""
+        self._detached = True
+
     async def _submit(self, invocation: AgentInvocation) -> str:
         raise NotImplementedError
 
@@ -47,13 +65,28 @@ class AsyncJobAdapter(TaskBackedAdapter):
     async def _cancel_job(self, job_id: str) -> None:
         raise NotImplementedError
 
+    async def _attach(self, invocation: AgentInvocation, job_id: str) -> None:
+        """Raise AdapterRunError if the provider does not know ``job_id``."""
+
+    async def resume(self, request: AgentInvocation, provider_ref: str) -> InvocationHandle:
+        async def execute(ctx: RunContext) -> AgentResult:
+            await self._attach(ctx.invocation, provider_ref)
+            ctx.provider_ref = provider_ref
+            await ctx.emit(AgentEventKind.STATUS, state="resumed", provider_ref=provider_ref)
+            return await self._follow_job(ctx, provider_ref)
+
+        return self._start(request, execute)
+
     async def _execute(self, ctx: RunContext) -> AgentResult:
-        workdir = ctx.invocation.workdir
-        if not workdir:
+        if not ctx.invocation.workdir:
             raise AdapterRunError("no_workdir", "async job outputs need a workdir")
         job_id = await self._submit(ctx.invocation)
         ctx.provider_ref = job_id
         await ctx.emit(AgentEventKind.STATUS, state="submitted", provider_ref=job_id)
+        return await self._follow_job(ctx, job_id)
+
+    async def _follow_job(self, ctx: RunContext, job_id: str) -> AgentResult:
+        workdir = ctx.invocation.workdir
         interval = float(self.config.get("poll_s", self.poll_interval_s))
         last = None
         try:
@@ -84,6 +117,7 @@ class AsyncJobAdapter(TaskBackedAdapter):
                     raise AdapterRunError("job_cancelled", "job cancelled by the provider")
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
-            # Make sure the provider stops (and stops billing) before reporting cancelled.
-            await asyncio.shield(self._cancel_job(job_id))
+            if not self._detached:
+                # Make sure the provider stops (and stops billing) before reporting cancelled.
+                await asyncio.shield(self._cancel_job(job_id))
             raise

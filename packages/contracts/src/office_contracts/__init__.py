@@ -16,6 +16,7 @@ from office_contracts.adapter import (
     InvocationMode,
     ObservabilityLevel,
     RunState,
+    SandboxPolicy,
 )
 from office_contracts.events import Event, EventType
 from office_contracts.policy import ApprovalScope, RiskAction
@@ -31,6 +32,7 @@ SCHEMA_MODELS = {
     "agent-event": AgentEvent,
     "artifact-ref": ArtifactRef,
     "approval-scope": ApprovalScope,
+    "sandbox-policy": SandboxPolicy,
 }
 
 __all__ = [
@@ -56,4 +58,5 @@ __all__ = [
     "ObservabilityLevel",
     "RiskAction",
     "RunState",
+    "SandboxPolicy",
 ]

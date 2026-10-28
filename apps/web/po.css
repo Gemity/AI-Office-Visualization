@@ -109,3 +109,6 @@ textarea, input { background: var(--bg-2); color: var(--text); border: 1px solid
   .po-main { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
   .po-panel { border-left: 0; border-top: 1px solid var(--line); }
 }
+.po-budget { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.po-budget label span { min-width: 160px; }
+.po-budget input { width: 120px; }

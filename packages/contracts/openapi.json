@@ -184,6 +184,86 @@
         }
       }
     },
+    "/projects/{project_id}/budget": {
+      "put": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Set Budget",
+        "description": "Sets cost limits (null = unlimited). Exceeding the project limit pauses the\nproject (circuit breaker); resuming needs a higher limit (ADR-0006).",
+        "operationId": "set_budget_projects__project_id__budget_put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectBudget"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteResponse_ProjectOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/projects/{project_id}/events": {
       "get": {
         "tags": [
@@ -1384,7 +1464,28 @@
           "meta"
         ],
         "summary": "Healthz",
+        "description": "Liveness: the process answers.",
         "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Readyz",
+        "description": "Readiness: the database answers and the runtime's dispatcher is running.",
+        "operationId": "readyz_readyz_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2603,6 +2704,34 @@
         ],
         "title": "OwnerMessageAccepted"
       },
+      "ProjectBudget": {
+        "properties": {
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd",
+            "description": "null = no limit"
+          },
+          "agents": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Agents",
+            "description": "Per-agent limits in USD, by agent id."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ProjectBudget"
+      },
       "ProjectCreate": {
         "properties": {
           "name": {
@@ -2617,9 +2746,7 @@
             "title": "Config"
           },
           "budget": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Budget"
+            "$ref": "#/components/schemas/ProjectBudget"
           }
         },
         "type": "object",
@@ -2691,6 +2818,15 @@
             "type": "integer",
             "title": "Events"
           },
+          "budget": {
+            "$ref": "#/components/schemas/ProjectBudget",
+            "description": "Configured limits (null/absent = unlimited)."
+          },
+          "over_budget": {
+            "type": "boolean",
+            "title": "Over Budget",
+            "description": "Project spend reached max_cost_usd."
+          },
           "agents": {
             "items": {
               "$ref": "#/components/schemas/AgentMetrics"
@@ -2712,6 +2848,8 @@
           "interventions_by_status",
           "artifacts_by_type",
           "events",
+          "budget",
+          "over_budget",
           "agents"
         ],
         "title": "ProjectMetrics"

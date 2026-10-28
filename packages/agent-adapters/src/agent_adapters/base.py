@@ -2,7 +2,9 @@
 
 Required methods form ``AgentAdapter``. The optional ones from the spec
 (``cancel?``, ``subscribeEvents?``, ``collectArtifacts?``) are separate
-protocols so the runtime can check support with ``isinstance``.
+protocols so the runtime can check support with ``isinstance``. ``resume`` is
+an extension for job-based providers: re-attach to a provider job by its
+``provider_ref`` after a restart instead of submitting (and paying for) it again.
 """
 
 from collections.abc import AsyncIterator
@@ -41,3 +43,8 @@ class SupportsEvents(Protocol):
 @runtime_checkable
 class SupportsArtifacts(Protocol):
     async def collect_artifacts(self, handle_id: str) -> list[ArtifactRef]: ...
+
+
+@runtime_checkable
+class SupportsResume(Protocol):
+    async def resume(self, request: AgentInvocation, provider_ref: str) -> InvocationHandle: ...

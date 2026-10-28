@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from agent_adapters import TERMINAL, AgentAdapter, SupportsEvents, create_adapter
+from agent_adapters import TERMINAL, AgentAdapter, SupportsEvents, SupportsResume, create_adapter
 from office_contracts import (
     AgentError,
     AgentEventKind,
@@ -34,6 +34,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from office_api import budget
 from office_api import orchestrator as orch
 from office_api.approvals import ApprovalMixin
 from office_api.config import Settings
@@ -56,7 +57,7 @@ from office_api.models import (
     Task,
     TaskDependency,
 )
-from office_api.storage import ContentStore, preview, workspace_root
+from office_api.storage import ContentStore, preview, sandbox_policy, workspace_root
 
 log = logging.getLogger(__name__)
 
@@ -102,10 +103,17 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
 
     async def stop(self) -> None:
         # Runs interrupted here stay non-terminal in the DB; recover() handles them.
+        for adapter in self._adapters.values():
+            if hasattr(adapter, "detach"):
+                adapter.detach()  # provider jobs keep running; recover() re-attaches
         tasks = [t for t in (self._loop_task, *self._running) if t is not None]
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    @property
+    def running(self) -> bool:
+        return self._loop_task is not None and not self._loop_task.done()
 
     def wake(self) -> None:
         self._wake.set()
@@ -133,11 +141,16 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
 
     async def recover(self) -> None:
         turns_to_spawn: list[str] = []
+        resumed: list[str] = []
         async with self.sessionmaker() as s:
             runs = (
                 await s.scalars(select(AgentRun).where(AgentRun.status.in_(ACTIVE_RUN_STATES)))
             ).all()
             for run in runs:
+                if await self._resumable(s, run):
+                    # A provider job keeps running without us: re-attach, don't resubmit.
+                    resumed.append(run.id)
+                    continue
                 error = AgentError(
                     code="interrupted", message="runtime restarted during run", retryable=True
                 )
@@ -184,6 +197,19 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
             log.warning("recovered %d interrupted runs", len(runs))
         for run_id in turns_to_spawn:
             self._spawn(self._execute_turn(run_id))
+        for run_id in resumed:
+            self._spawn(self._execute_task_run(run_id, resume=True))
+        if resumed:
+            log.warning("re-attached %d provider jobs", len(resumed))
+
+    async def _resumable(self, s: AsyncSession, run: AgentRun) -> bool:
+        if run.purpose != "task" or not run.provider_ref or run.status != RunState.RUNNING:
+            return False
+        agent = await s.get(AgentDefinition, run.agent_id)
+        try:
+            return isinstance(self.adapter_for(agent), SupportsResume)
+        except ValueError:
+            return False
 
     # --- dispatcher -------------------------------------------------------
 
@@ -235,17 +261,31 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
                 per_project[(await s.get(Task, conv_task_id)).project_id] += 1
             busy = {a for _, a in active}
             workers_by_project: dict[str, list[AgentDefinition]] = {}
+            spend_by_project: dict[str, budget.Spend] = {}
+            tripped: set[str] = set()
             conversations: list[str] = []
 
             for task in ready:
+                if task.project_id in tripped:
+                    continue
                 if per_project[task.project_id] >= self.settings.max_parallel_runs:
                     continue
+                project = await s.get(Project, task.project_id)
                 if task.project_id not in workers_by_project:
                     workers_by_project[task.project_id] = await self._workers(s, task.project_id)
+                    spend_by_project[task.project_id] = await budget.spend(s, task.project_id)
+                used = spend_by_project[task.project_id]
+                if budget.project_over(project, used):
+                    tripped.add(task.project_id)
+                    await self._trip_breaker(s, project, used)
+                    continue
                 if task.kind in ("meeting", "dm"):
                     present = {w.id for w in workers_by_project[task.project_id]}
                     if not set(task.participants) <= present:
                         turns += await self._block(s, task, "participant_unavailable")
+                        continue
+                    if any(budget.agent_over(project, used, p) for p in task.participants):
+                        turns += await self._block(s, task, "budget_exceeded")
                         continue
                     await self._start_conversation(s, task)
                     per_project[task.project_id] += 1
@@ -259,6 +299,10 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
                 ]
                 if not capable:
                     turns += await self._block(s, task, "no_capable_worker")
+                    continue
+                capable = [w for w in capable if not budget.agent_over(project, used, w.id)]
+                if not capable:
+                    turns += await self._block(s, task, "budget_exceeded")
                     continue
                 approved_for = await self.approved_agent(s, task)
                 if approved_for in {w.id for w in capable}:
@@ -286,6 +330,19 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
             self._spawn_conversation(task_id)
         for run_id in turns:
             self.start_turn(run_id)
+
+    async def _trip_breaker(self, s: AsyncSession, project: Project, used: budget.Spend) -> None:
+        """Circuit breaker: pause the project like an Owner pause, attributed to system."""
+        cap = budget.limits(project).max_cost_usd
+        log.warning("project %s over budget (%.4f >= %.4f): pausing", project.id, used.project, cap)
+        await self.request_intervention(
+            s,
+            project_id=project.id,
+            action="pause",
+            task_id=None,
+            instructions=f"budget_exceeded: spent ${used.project:.4f} of ${cap:.4f}",
+            requested_by="system",
+        )
 
     async def _workers(self, s: AsyncSession, project_id: str) -> list[AgentDefinition]:
         return list(
@@ -338,11 +395,13 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
 
     # --- worker runs ------------------------------------------------------
 
-    async def _execute_task_run(self, run_id: str) -> None:
+    async def _execute_task_run(self, run_id: str, resume: bool = False) -> None:
+        """``resume``: re-attach to the run's provider job after a restart."""
         async with self.sessionmaker() as s:
             run = await s.get(AgentRun, run_id)
             task = await s.get(Task, run.task_id)
-            if (iv := await self.pending_intervention(s, task.id)) is not None:
+            iv = await self.pending_intervention(s, task.id)
+            if iv is not None and not resume:
                 # Stopped before it reached the adapter.
                 run.status, run.finished_at = RunState.CANCELLED, utcnow()
                 turns = await self._apply_stop(s, task, iv)
@@ -350,6 +409,8 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
                 self._after(turns)
                 return
             agent = await s.get(AgentDefinition, run.agent_id)
+            project = await s.get(Project, task.project_id)
+            max_cost = budget.remaining(project, await budget.spend(s, task.project_id), agent.id)
             dependencies = await self._dependency_results(s, task)
             thread_id = await self._task_thread(s, task, agent.id)
             await self._commit(s)
@@ -374,7 +435,8 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
             ),
             workdir=str(workdir),
             read_dirs=[str(root)],
-            limits=InvocationLimits(timeout_s=int(self.settings.run_timeout_s)),
+            limits=InvocationLimits(timeout_s=int(self.settings.run_timeout_s), max_cost=max_cost),
+            sandbox=sandbox_policy(self.settings, task.project_id, workdir),
         )
 
         async def on_message(text: str) -> None:
@@ -382,7 +444,14 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
                 task.project_id, thread_id, agent.id, text, task_id=task.id, trace_id=run.trace_id
             )
 
-        status, artifacts = await self._invoke(agent, run.id, invocation, on_message)
+        status, artifacts = await self._invoke(
+            agent,
+            run.id,
+            invocation,
+            on_message,
+            resume_ref=run.provider_ref if resume else None,
+            cancel_first=resume and iv is not None,  # stop requested while we were down
+        )
         async with self.sessionmaker() as s:
             run = await s.get(AgentRun, run_id)
             task = await s.get(Task, run.task_id)
@@ -408,15 +477,27 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
         self.wake()
 
     async def _invoke(
-        self, agent: AgentDefinition, run_id: str, invocation: AgentInvocation, on_message=None
+        self,
+        agent: AgentDefinition,
+        run_id: str,
+        invocation: AgentInvocation,
+        on_message=None,
+        *,
+        resume_ref: str | None = None,
+        cancel_first: bool = False,
     ) -> tuple[AgentStatus, list[ArtifactRef]]:
         """Runs one invocation to a terminal status (with timeout)."""
         adapter = self.adapter_for(agent)
         handle = None
         try:
-            handle = await adapter.invoke(invocation)
+            if resume_ref is not None:
+                handle = await adapter.resume(invocation, resume_ref)
+            else:
+                handle = await adapter.invoke(invocation)
             self._live[run_id] = (adapter, handle.handle_id, invocation.task_id)
             await self._mark_running(run_id, handle.provider_ref)
+            if cancel_first and hasattr(adapter, "cancel"):
+                await adapter.cancel(handle.handle_id)
             status = await asyncio.wait_for(
                 self._follow(adapter, run_id, handle.handle_id, on_message),
                 self.settings.run_timeout_s,
@@ -476,7 +557,7 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
     async def _mark_running(self, run_id: str, provider_ref: str | None) -> None:
         async with self.sessionmaker() as s:
             run = await s.get(AgentRun, run_id)
-            run.status, run.started_at = RunState.RUNNING, utcnow()
+            run.status, run.started_at = RunState.RUNNING, run.started_at or utcnow()
             run.provider_ref = provider_ref or run.provider_ref
             await s.commit()
 
@@ -779,6 +860,7 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
             instructions=prompt,
             output_schema=orch.OUTPUT_SCHEMA,
             limits=InvocationLimits(timeout_s=int(self.settings.run_timeout_s)),
+            sandbox=sandbox_policy(self.settings, run.project_id, None),
         )
         status, _ = await self._invoke(agent, run.id, invocation)
 

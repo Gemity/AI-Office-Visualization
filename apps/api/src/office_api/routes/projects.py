@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from office_api import idempotency
-from office_api.auth import CurrentPrincipal, Membership, Session
+from office_api.auth import CurrentPrincipal, Membership, OwnerMembership, Session
+from office_api.budget import ProjectBudget
 from office_api.db import new_id
 from office_api.errors import request_id
 from office_api.events import append_event
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     config: dict[str, Any] = Field(default_factory=dict)
-    budget: dict[str, Any] = Field(default_factory=dict)
+    budget: ProjectBudget = Field(default_factory=ProjectBudget)
 
 
 class ProjectOut(BaseModel):
@@ -60,7 +61,7 @@ async def create_project(
             id=new_id("prj"),
             name=body.name,
             config=body.config,
-            budget=body.budget,
+            budget=body.budget.model_dump(),
             created_by=principal.id,
         )
         session.add(project)
@@ -108,3 +109,39 @@ async def list_projects(principal: CurrentPrincipal, session: Session):
 async def get_project(project_id: str, member: Membership, session: Session):
     project = await session.get(Project, project_id)
     return _out(project, member.role)
+
+
+@router.put("/{project_id}/budget", response_model=WriteResponse[ProjectOut])
+async def set_budget(
+    project_id: str,
+    body: ProjectBudget,
+    request: Request,
+    member: OwnerMembership,
+    session: Session,
+    idempotency_key: Annotated[str, Header(min_length=1, max_length=200)],
+):
+    """Sets cost limits (null = unlimited). Exceeding the project limit pauses the
+    project (circuit breaker); resuming needs a higher limit (ADR-0006)."""
+
+    async def handler() -> ProjectOut:
+        project = await session.get(Project, project_id)
+        project.budget = body.model_dump()
+        session.add(
+            AuditLog(
+                id=new_id("aud"),
+                project_id=project_id,
+                principal=member.principal_id,
+                action="project.budget",
+                resource=project_id,
+                outcome="success",
+                request_id=request_id(request),
+            )
+        )
+        return _out(project, member.role)
+
+    response, data = await idempotency.write(
+        request, session, member.principal_id, idempotency_key, body, handler, status_code=200
+    )
+    if data is not None:
+        request.app.state.runtime.wake()
+    return response

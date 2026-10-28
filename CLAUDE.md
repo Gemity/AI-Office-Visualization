@@ -19,7 +19,8 @@ Dự án dùng cá nhân, phi thương mại.
 **Phase 1 xong** (ADR-0003): agent registry, Owner ↔ Orchestrator chat, task runtime trên DB (DAG, dispatch theo capability, song song, retry, khôi phục), adapter `claude-agent-sdk` / `codex-cli` / `mock` — đã chạy thật với Claude + Codex.
 **Phase 2 xong** (ADR-0004): meeting/DM là task (`kind meeting|dm`, hub có moderator, biên bản, decision, action item), interventions (pause/resume/cancel/redirect, `requested → applied|rejected`), lọc timeline. UI mới `apps/web/index.html` + `po-app.js` là projection từ REST + WebSocket trên renderer Pixel Office (`observeOnly`).
 **Phase 3 xong** (ADR-0005): adapter async job (`AsyncJobAdapter`, mock `mock-suno`/`mock-tripo`), approval gate cho hành động rủi ro cao (BR-07), artifact viewer/content an toàn, metrics chi phí.
-Tiếp theo: Phase 4 (hardening: ngân sách/circuit breaker, gắn lại job sau restart, Alembic/Postgres, sandbox OS, e2e AC-01…AC-10).
+**Phase 4 xong** (ADR-0006): sandbox bubblewrap mặc định cho adapter CLI, gắn lại job async sau restart, ngân sách + circuit breaker, Alembic, log redaction + security headers, backup/healthcheck, deploy local (systemd `--user`, `docs/deploy-local.md`), e2e AC-01…AC-10 + NFR trong `tests/e2e/`.
+Chưa làm: Postgres (chưa kiểm chứng), secret vault, các policy mặc định còn mở ở §18.
 
 ## Lệnh
 
@@ -32,12 +33,18 @@ uv run pytest apps/api/tests/test_events.py::test_stream_replays_then_pushes_liv
 uv run ruff check . && uv run ruff format .   # lint + format
 uv run python scripts/gen_contracts.py        # sinh lại JSON Schema + openapi.json (bắt buộc khi đổi model/API)
 uv run office-api create-owner --name "Tên"   # tạo principal, in token (chỉ hiện một lần)
-uv run office-api serve --port 8000           # chạy API + UI tại http://127.0.0.1:8000/
+uv run office-api serve --port 8000           # chạy API + UI tại http://127.0.0.1:8000/ (tự migrate khi khởi động)
                                               # env: OFFICE_DATABASE_URL (mặc định sqlite ./office.db), OFFICE_WEB_DIR (mặc định apps/web, rỗng = tắt),
-                                              #      OFFICE_DATA_DIR (mặc định ./data: content store + workspace của agent)
+                                              #      OFFICE_DATA_DIR (mặc định ./data: content store + workspace của agent),
+                                              #      OFFICE_SANDBOX (bwrap mặc định | none)
+uv run office-api migrate                     # nâng DB lên schema mới nhất
+uv run office-api makemigration -m "..."      # sinh migration Alembic khi đổi models.py (bắt buộc)
+uv run office-api backup --keep 10            # snapshot SQLite + data dir vào <data>/backups
+uv run pytest tests/e2e                       # e2e: chạy server thật trong tiến trình riêng (chậm hơn)
 ```
 
-Schema vẫn tạo bằng `create_all` (chưa có Alembic): đổi model ⇒ xóa `office.db` dev cũ.
+Schema do Alembic quản lý (`office_api/migrations/`): đổi model ⇒ `office-api makemigration`; `test_migrations_match_models_exactly` fail nếu thiếu. DB cũ tạo bằng `create_all` bị từ chối ⇒ xóa `office.db` dev cũ.
+Sandbox cần `bwrap` (không lồng được bwrap trong bwrap trên máy này: AppArmor chặn userns lồng).
 Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent SDK) và `codex`. Test chỉ dùng mock/fake, không gọi provider thật.
 
 ## Cấu trúc backend hiện có
@@ -46,7 +53,8 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
 - `packages/agent-adapters/src/agent_adapters/`:
   - `base.py` — `AgentAdapter` Protocol + `SupportsCancel/SupportsEvents/SupportsArtifacts`.
   - `runner.py` — `TaskBackedAdapter`: nền chung (idempotent invoke, cancel requested→confirmed, phát lại event, quét artifact trong workdir). Adapter mới chỉ cần `describe_capabilities()` + `_execute(ctx)`.
-  - `jobs.py` — `AsyncJobAdapter`: worker dạng job (submit/poll/cancel), `provider_ref` + progress thật, output ghi vào workdir.
+  - `jobs.py` — `AsyncJobAdapter`: worker dạng job (submit/poll/cancel), `provider_ref` + progress thật, output ghi vào workdir; `resume(request, provider_ref)` gắn lại job sau restart, `detach()` khi tắt (không hủy job ở provider).
+  - `sandbox.py` — bọc lệnh CLI bằng bubblewrap theo `SandboxPolicy` (ẩn → chỉ đọc → ghi được); thiếu bwrap ⇒ `sandbox_unavailable`. Codex trong bwrap dùng `-s danger-full-access` (sandbox riêng của nó cần userns lồng).
   - `claude_sdk.py`, `codex_cli.py`, `mock.py`, `mock_jobs.py` (`mock-suno`, `mock-tripo`); `registry.py` (`create_adapter`). Gọi không có `workdir` ⇒ không cho ghi file.
 - `apps/api/src/office_api/`:
   - `models.py` — toàn bộ schema §9. Tham chiếu giữa bảng project-scoped dùng composite FK `(project_id, x_id)`; BR-01 là unique partial index. Không có ORM relationship ⇒ phải `flush()` row cha trước khi thêm row con.
@@ -56,14 +64,18 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
   - `hub.py` — `ConversationMixin`: chạy meeting/DM theo lượt (`conversation_turn`), moderator = Orchestrator active, biên bản → `decision.recorded` + action item thành task mới.
   - `approvals.py` — `ApprovalMixin`: dispatcher gọi `_approval_gate` trước khi tạo run; task có `risk_actions` hoặc worker có quyền rủi ro cao trong `required_permissions` → `awaiting_approval`; approval dùng một lần, scope gồm task/actions/worker/sha256 chỉ dẫn.
   - `interventions.py` — `InterventionMixin`: can thiệp chỉ `applied` khi runtime thấy run đã dừng thật; pause/resume không kèm task = cấp project.
-  - `runtime.py` — `Runtime(ConversationMixin, InterventionMixin, ApprovalMixin)`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
+  - `runtime.py` — `Runtime(ConversationMixin, InterventionMixin, ApprovalMixin)`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động (nối lại run có `provider_ref`). Dispatcher kiểm ngân sách: project vượt trần ⇒ can thiệp pause `requested_by=system`. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
   - `orchestrator.py` — prompt + schema `OrchestratorOutput` (structured output) + `validate_plan`.
-  - `storage.py` — content store `obj://` (nội dung tin nhắn/kết quả) và đường dẫn workspace.
+  - `storage.py` — content store `obj://` (nội dung tin nhắn/kết quả), đường dẫn workspace, `sandbox_policy()` (ẩn data dir/DB/secret trong home).
+  - `budget.py` — `ProjectBudget` (`projects.budget`), chi tiêu từ `agent_runs.cost`; `PUT /projects/{id}/budget`.
+  - `migrations/` — Alembic (`upgrade()` gọi khi khởi động và bởi `office-api migrate`).
+  - `logs.py` — che token trong log uvicorn; `cli.py` — `create-owner`, `serve`, `migrate`, `makemigration`, `backup`.
   - `routes/` — projects, events (REST replay có lọc `type`/`task_id`/`actor_id`/`conversation_id` + WebSocket), agents (`/adapters`, `/projects/{id}/agents`), orchestrator (`POST .../orchestrator/messages` → 202), work (tasks, conversations, messages, meetings, artifacts + `/artifacts/{id}/content` có kiểm checksum, CSP sandbox), interventions (`POST/GET .../interventions` → 202), approvals (`GET`, `POST .../approvals/{id}/decision`), metrics (`GET .../metrics`).
   - `auth.py` — write trong project dùng `OwnerMembership` (observer chỉ đọc → 403).
-  - `main.py` — mount `apps/web/` làm static tại `/` **sau cùng**; route API mới phải khai báo trước mount.
+  - `main.py` — mount `apps/web/` làm static tại `/` **sau cùng**; route API mới phải khai báo trước mount. Security headers (CSP `script-src 'self'` ⇒ UI không được có inline script), `/healthz`, `/readyz`.
 - `apps/web/` — `index.html` + `po-app.js` + `po.css` là UI của dự án; `layout.js`/`office.js`/`style.css`/asset từ upstream (sửa gì ghi vào `UPSTREAM.md`). Office không được tự sinh hoạt động: chỉ `setStatus`/`speak`/`setMeeting` từ dữ liệu API/event.
-- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`, `test_phase2.py`, `test_phase3.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`.
+- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`. Test runtime (`test_phase1.py`, `test_phase2.py`, `test_phase3.py`) dùng mock adapter với kịch bản `responses` và `wait_until(...)`. `test_phase4.py` quét mọi route `/projects/{project_id}/…` trong OpenAPI (404/401/403) — route mới tự được kiểm.
+- `tests/e2e/` — chạy `office-api serve` thật (port ngẫu nhiên) qua HTTP/WebSocket; fixture `server` ở `harness.py` (không dùng `conftest.py` ở đây vì trùng tên với `apps/api/tests/conftest.py`).
 
 Đã chốt (xem `docs/adr/0001-web-stack-fork-pixel-office.md`):
 - **Toàn bộ là web**, không dùng Unity (dù repo nằm trong thư mục `UnityProject/`). Không tạo asset/scene/script Unity.
@@ -87,7 +99,8 @@ services/agent-workers/     # Worker execution/sandbox
 packages/contracts/         # OpenAPI + event JSON schemas
 packages/agent-adapters/    # Claude/Codex/Suno/Tripo/custom
 packages/office-renderer/   # UI projection from events
-infra/docker/               # Local Compose
+infra/docker/               # Local Compose (chưa dùng: deploy local-first, ADR-0006)
+infra/systemd/              # Mẫu systemd --user (service + backup timer)
 docs/adr/                   # Architecture decisions
 tests/e2e/                  # Cross-agent workflows
 ```

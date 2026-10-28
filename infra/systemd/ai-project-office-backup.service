@@ -1,0 +1,12 @@
+[Unit]
+Description=AI Project Office backup (SQLite snapshot + data dir)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/UnityProject/AI-Office-Visualization
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=OFFICE_DATABASE_URL=sqlite+aiosqlite:///%h/.local/share/ai-project-office/office.db
+Environment=OFFICE_DATA_DIR=%h/.local/share/ai-project-office/data
+EnvironmentFile=-%h/.config/ai-project-office/env
+UMask=0077
+ExecStart=%h/.local/bin/uv run --frozen office-api backup --keep 14

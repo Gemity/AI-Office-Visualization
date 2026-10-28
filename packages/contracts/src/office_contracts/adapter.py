@@ -7,7 +7,7 @@ not report ``succeeded`` or ``cancelled`` it has not observed (BR-09).
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -72,6 +72,25 @@ class InvocationLimits(_Model):
     max_tokens: int | None = Field(default=None, gt=0)
 
 
+class SandboxPolicy(_Model):
+    """OS-level isolation for adapters that run local processes (spec §13).
+
+    With ``mode='bwrap'`` the process sees the host filesystem read-only, can
+    write only to ``writable`` paths, and ``hidden`` paths are masked (empty
+    dir / empty file). Network stays available when ``network`` is true
+    (provider CLIs must reach their API)."""
+
+    model_config = ConfigDict(title="SandboxPolicy")
+
+    mode: Literal["none", "bwrap"] = "none"
+    writable: list[str] = Field(default_factory=list)
+    readable: list[str] = Field(
+        default_factory=list, description="Re-exposed read-only inside hidden paths."
+    )
+    hidden: list[str] = Field(default_factory=list)
+    network: bool = True
+
+
 class AgentInvocation(_Model):
     model_config = ConfigDict(title="AgentInvocation")
 
@@ -100,6 +119,7 @@ class AgentInvocation(_Model):
     output_schema: dict[str, Any] | None = Field(
         default=None, description="JSON Schema the final output must match (structured output)."
     )
+    sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
 
 
 class RunState(StrEnum):

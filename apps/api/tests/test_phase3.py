@@ -1,6 +1,8 @@
 """Phase 3: async job adapters, artifacts, approvals, metrics (mock adapters)."""
 
 import dataclasses
+import json
+import sqlite3
 import time
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -21,7 +23,12 @@ def office(client, make_owner):
 
 
 def by_title(office, title):
-    return next(t for t in office.get("/tasks") if t["title"] == title)
+    return next((t for t in office.get("/tasks") if t["title"] == title), None)
+
+
+def job_ref(office, title):
+    t = by_title(office, title)
+    return t and t["runs"] and t["runs"][0]["provider_ref"]
 
 
 def decide(office, approval_id, decision, headers=None):
@@ -390,3 +397,58 @@ def test_artifact_content_is_project_scoped_and_checksummed(client, office, make
     Path(unquote(urlparse(art["uri"]).path)).write_text("tampered")
     r = client.get(f"/projects/{office.pid}/artifacts/{art['id']}/content", headers=office.h)
     assert r.status_code == 409 and r.json()["error"]["code"] == "artifact_changed"
+
+
+def _set_config(settings, agent_id, config):
+    db = sqlite3.connect(settings.database_url.split("///")[1])
+    db.execute(
+        "UPDATE agent_definitions SET config = ? WHERE id = ?", (json.dumps(config), agent_id)
+    )
+    db.commit()
+    db.close()
+
+
+def test_restart_reattaches_running_provider_job(settings, make_owner, client):
+    """AC-10 for async jobs: the provider job keeps running while the backend is
+    down; the next process re-attaches by provider_ref instead of resubmitting."""
+    office = Office(client, make_owner())
+    orch = office.add(
+        "O", "orchestrator", {"responses": [plan("ok", [task("m", "Nhạc", ["audio"])])]}
+    )
+    music = office.add("Suno", "worker", {"duration_s": 1.5, "poll_s": 0.05}, adapter="mock-suno")
+    office.say("go")
+    job = wait_until(lambda: job_ref(office, "Nhạc"))
+    client.__exit__(None, None, None)  # crash while the job runs
+    _set_config(settings, orch, {"responses": [DONE]})
+
+    with TestClient(create_app(settings)) as restarted:
+        office.c = restarted
+        office.wait_replies(3)
+        t = by_title(office, "Nhạc")
+        assert t["status"] == "completed"
+        [r] = t["runs"]  # same run, same provider job: nothing resubmitted
+        assert (r["status"], r["provider_ref"]) == ("succeeded", job)
+        assert [a["name"] for a in office.get("/artifacts")] == ["track.wav"]
+        assert not office.events("run.failed")
+        adapter = restarted.app.state.runtime._adapters[music]
+        assert list(adapter.service.jobs) == [job]
+
+
+def test_restart_with_unknown_job_falls_back_to_retry(settings, make_owner, client):
+    office = Office(client, make_owner())
+    orch = office.add("O", "orchestrator", {"responses": [plan("ok", [task("d", "3D", ["3d"])])]})
+    office.add("Tripo", "worker", {"duration_s": 1.5, "poll_s": 0.05}, adapter="mock-tripo")
+    office.say("go")
+    wait_until(lambda: job_ref(office, "3D"))
+    client.__exit__(None, None, None)
+    _set_config(settings, orch, {"responses": [DONE]})
+    for record in Path(settings.data_dir).rglob(".mockjob-*.json"):
+        record.unlink()  # the provider lost the job
+
+    with TestClient(create_app(settings)) as restarted:
+        office.c = restarted
+        office.wait_replies(3)
+        t = by_title(office, "3D")
+        assert t["status"] == "completed"
+        assert [r["status"] for r in t["runs"]] == ["failed", "succeeded"]
+        assert t["runs"][0]["error"]["code"] == "job_not_found"

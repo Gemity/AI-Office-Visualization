@@ -33,7 +33,7 @@ from office_api.models import (
     Meeting,
     Task,
 )
-from office_api.storage import preview
+from office_api.storage import preview, sandbox_policy
 
 TURN_ATTEMPTS = 2
 
@@ -224,6 +224,7 @@ class ConversationMixin:
                 instructions=prompt,
                 output_schema=schema,
                 limits=InvocationLimits(timeout_s=int(self.settings.run_timeout_s)),
+                sandbox=sandbox_policy(self.settings, task.project_id, None),
             )
             try:
                 status, _ = await self._invoke(agent, run.id, invocation)
