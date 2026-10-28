@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/artifact-ref.schema.json",
+  "additionalProperties": false,
+  "properties": {
+    "uri": {
+      "title": "Uri",
+      "type": "string"
+    },
+    "type": {
+      "description": "code, audio, 3d, document, log, ...",
+      "title": "Type",
+      "type": "string"
+    },
+    "mime_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mime Type"
+    },
+    "checksum": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "'sha256:<hex>'",
+      "title": "Checksum"
+    },
+    "size_bytes": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Size Bytes"
+    }
+  },
+  "required": [
+    "uri",
+    "type"
+  ],
+  "title": "ArtifactRef",
+  "type": "object"
+}

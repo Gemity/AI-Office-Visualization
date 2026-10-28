@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/agent-status.schema.json",
+  "$defs": {
+    "AgentError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "AgentError",
+      "type": "object"
+    },
+    "RunState": {
+      "enum": [
+        "queued",
+        "running",
+        "waiting",
+        "cancel_requested",
+        "cancelled",
+        "succeeded",
+        "failed"
+      ],
+      "title": "RunState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "handle_id": {
+      "title": "Handle Id",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/RunState"
+    },
+    "progress": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Progress"
+    },
+    "message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AgentError"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "handle_id",
+    "state",
+    "observed_at"
+  ],
+  "title": "AgentStatus",
+  "type": "object"
+}

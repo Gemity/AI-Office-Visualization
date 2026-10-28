@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/agent-event.schema.json",
+  "$defs": {
+    "AgentEventKind": {
+      "enum": [
+        "message",
+        "tool_call",
+        "progress",
+        "log",
+        "artifact",
+        "status"
+      ],
+      "title": "AgentEventKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "handle_id": {
+      "title": "Handle Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/AgentEventKind"
+    },
+    "occurred_at": {
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    }
+  },
+  "required": [
+    "handle_id",
+    "kind",
+    "occurred_at"
+  ],
+  "title": "AgentEvent",
+  "type": "object"
+}

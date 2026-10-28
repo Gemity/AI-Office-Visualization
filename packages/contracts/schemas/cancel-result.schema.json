@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/cancel-result.schema.json",
+  "$defs": {
+    "RunState": {
+      "enum": [
+        "queued",
+        "running",
+        "waiting",
+        "cancel_requested",
+        "cancelled",
+        "succeeded",
+        "failed"
+      ],
+      "title": "RunState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "handle_id": {
+      "title": "Handle Id",
+      "type": "string"
+    },
+    "accepted": {
+      "description": "Provider accepted the request; not proof it stopped.",
+      "title": "Accepted",
+      "type": "boolean"
+    },
+    "state": {
+      "$ref": "#/$defs/RunState",
+      "description": "State actually observed after the request."
+    }
+  },
+  "required": [
+    "handle_id",
+    "accepted",
+    "state"
+  ],
+  "title": "CancelResult",
+  "type": "object"
+}

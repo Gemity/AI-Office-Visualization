@@ -1,0 +1,31 @@
+[project]
+name = "ai-project-office"
+version = "0.0.0"
+description = "AI Project Office — workspace root"
+requires-python = ">=3.12"
+dependencies = ["office-api", "office-contracts", "agent-adapters"]
+
+[dependency-groups]
+dev = ["pytest>=8", "httpx>=0.27", "jsonschema>=4.23", "ruff>=0.6"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api", "packages/contracts", "packages/agent-adapters"]
+
+[tool.uv.sources]
+office-api = { workspace = true }
+office-contracts = { workspace = true }
+agent-adapters = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["apps/api/tests", "packages/agent-adapters/tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/event.schema.json",
+  "$defs": {
+    "EventType": {
+      "enum": [
+        "project.created",
+        "agent.assigned",
+        "task.created",
+        "task.started",
+        "task.blocked",
+        "task.completed",
+        "message.sent",
+        "meeting.started",
+        "meeting.ended",
+        "decision.recorded",
+        "artifact.created",
+        "approval.requested",
+        "approval.resolved",
+        "run.failed",
+        "intervention.requested",
+        "intervention.applied"
+      ],
+      "title": "EventType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "description": "Globally unique; consumers de-dup on this.",
+      "title": "Event Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "sequence": {
+      "description": "Per-project, strictly increasing, gap-free.",
+      "minimum": 1,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "type": {
+      "$ref": "#/$defs/EventType"
+    },
+    "actor_id": {
+      "description": "Agent, principal or 'system' that caused the event.",
+      "title": "Actor Id",
+      "type": "string"
+    },
+    "conversation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conversation Id"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "trace_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace Id"
+    },
+    "occurred_at": {
+      "description": "RFC 3339 timestamp with offset.",
+      "format": "date-time",
+      "title": "Occurred At",
+      "type": "string"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    }
+  },
+  "required": [
+    "event_id",
+    "project_id",
+    "sequence",
+    "type",
+    "actor_id",
+    "occurred_at"
+  ],
+  "title": "Event",
+  "type": "object"
+}

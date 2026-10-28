@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/agent-invocation.schema.json",
+  "$defs": {
+    "InvocationLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "timeout_s": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout S"
+        },
+        "max_cost": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cost"
+        },
+        "max_tokens": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Tokens"
+        }
+      },
+      "title": "InvocationLimits",
+      "type": "object"
+    },
+    "InvocationMode": {
+      "enum": [
+        "sync",
+        "stream",
+        "async_job"
+      ],
+      "title": "InvocationMode",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "invocation_id": {
+      "title": "Invocation Id",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Re-dispatch with the same key must not start a second run.",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "task_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Task Id"
+    },
+    "agent_id": {
+      "title": "Agent Id",
+      "type": "string"
+    },
+    "trace_id": {
+      "title": "Trace Id",
+      "type": "string"
+    },
+    "mode": {
+      "$ref": "#/$defs/InvocationMode"
+    },
+    "instructions": {
+      "title": "Instructions",
+      "type": "string"
+    },
+    "context_refs": {
+      "description": "content_ref / artifact URIs.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Context Refs",
+      "type": "array"
+    },
+    "parameters": {
+      "additionalProperties": true,
+      "title": "Parameters",
+      "type": "object"
+    },
+    "permissions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Permissions",
+      "type": "array"
+    },
+    "limits": {
+      "$ref": "#/$defs/InvocationLimits"
+    }
+  },
+  "required": [
+    "invocation_id",
+    "idempotency_key",
+    "project_id",
+    "agent_id",
+    "trace_id",
+    "mode",
+    "instructions"
+  ],
+  "title": "AgentInvocation",
+  "type": "object"
+}

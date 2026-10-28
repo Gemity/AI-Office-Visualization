@@ -13,7 +13,35 @@ Nguyên tắc: **One Project → One Active Orchestrator → Many Workers → On
 
 ## Trạng thái hiện tại
 
-Repo mới khởi tạo; mới có frontend fork nguyên trạng trong `apps/web/`, chưa có backend. Spec ở trạng thái *Proposed baseline* (Phase 0: chốt schema, adapter contract, project-scoped auth, prototype event stream). Chưa có lệnh build/test/lint — cập nhật mục này khi tooling được thêm vào.
+Dự án dùng cá nhân, phi thương mại.
+
+**Phase 0 xong** (ADR-0002): contracts, DB schema, project-scoped auth, prototype event stream (`POST/GET /projects`, `GET /projects/{id}/events`, `WS /projects/{id}/stream`). Frontend `apps/web/` vẫn là bản fork nguyên trạng, chưa nối với API mới. Tiếp theo: Phase 1 (Orchestrator chat, task runtime, Claude/Codex adapters).
+
+## Lệnh
+
+Python workspace quản lý bằng `uv` (root `pyproject.toml`; members `apps/api`, `packages/contracts`, `packages/agent-adapters`).
+
+```bash
+uv sync                                       # cài dependencies
+uv run pytest                                 # toàn bộ test
+uv run pytest apps/api/tests/test_events.py::test_stream_replays_then_pushes_live  # một test
+uv run ruff check . && uv run ruff format .   # lint + format
+uv run python scripts/gen_contracts.py        # sinh lại JSON Schema + openapi.json (bắt buộc khi đổi model/API)
+uv run office-api create-owner --name "Tên"   # tạo principal, in token (chỉ hiện một lần)
+uv run office-api serve --port 8000           # chạy API; DB: OFFICE_DATABASE_URL (mặc định sqlite ./office.db)
+```
+
+## Cấu trúc backend hiện có
+
+- `packages/contracts/src/office_contracts/` — Pydantic models là **nguồn gốc** của contract (`events.py`: Event envelope + EventType; `adapter.py`: CapabilityManifest, AgentInvocation, AgentStatus, ...). `schemas/*.json` và `openapi.json` là file **sinh ra**, không sửa tay; `test_generated_contracts_are_up_to_date` fail nếu cũ.
+- `packages/agent-adapters/src/agent_adapters/base.py` — `AgentAdapter` Protocol + `SupportsCancel/SupportsEvents/SupportsArtifacts`.
+- `apps/api/src/office_api/`:
+  - `models.py` — toàn bộ schema §9. Tham chiếu giữa bảng project-scoped dùng composite FK `(project_id, x_id)`; BR-01 là unique partial index. Không có ORM relationship ⇒ phải `flush()` row cha trước khi thêm row con.
+  - `auth.py` — `Membership` dependency là cách duy nhất để vào route `/projects/{project_id}/...`; không phải thành viên → 404.
+  - `events.py` — `append_event()` trong transaction rồi `commit_and_publish()`; không publish trước commit, không tự tính sequence.
+  - `idempotency.py`, `errors.py` — `Idempotency-Key` bắt buộc cho write; error envelope + `X-Request-ID`.
+  - `routes/` — projects, events (REST replay + WebSocket).
+- Test dùng `TestClient` + SQLite tạm; gọi code async trong loop của app qua `conftest.run(client, fn)`.
 
 Đã chốt (xem `docs/adr/0001-web-stack-fork-pixel-office.md`):
 - **Toàn bộ là web**, không dùng Unity (dù repo nằm trong thư mục `UnityProject/`). Không tạo asset/scene/script Unity.

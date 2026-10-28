@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/invocation-handle.schema.json",
+  "$defs": {
+    "RunState": {
+      "enum": [
+        "queued",
+        "running",
+        "waiting",
+        "cancel_requested",
+        "cancelled",
+        "succeeded",
+        "failed"
+      ],
+      "title": "RunState",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "handle_id": {
+      "title": "Handle Id",
+      "type": "string"
+    },
+    "invocation_id": {
+      "title": "Invocation Id",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/RunState"
+    },
+    "provider_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Provider-side job/session id.",
+      "title": "Provider Ref"
+    }
+  },
+  "required": [
+    "handle_id",
+    "invocation_id",
+    "state"
+  ],
+  "title": "InvocationHandle",
+  "type": "object"
+}

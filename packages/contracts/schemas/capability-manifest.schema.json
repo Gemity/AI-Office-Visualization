@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/capability-manifest.schema.json",
+  "$defs": {
+    "Capability": {
+      "enum": [
+        "chat",
+        "code",
+        "image",
+        "audio",
+        "3d",
+        "tool_call",
+        "async_job"
+      ],
+      "title": "Capability",
+      "type": "string"
+    },
+    "CostModel": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/CostUnit"
+        },
+        "currency": {
+          "default": "USD",
+          "title": "Currency",
+          "type": "string"
+        },
+        "unit_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Price per unit if known.",
+          "title": "Unit Price"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        }
+      },
+      "required": [
+        "unit"
+      ],
+      "title": "CostModel",
+      "type": "object"
+    },
+    "CostUnit": {
+      "enum": [
+        "token",
+        "job",
+        "second",
+        "none"
+      ],
+      "title": "CostUnit",
+      "type": "string"
+    },
+    "InvocationMode": {
+      "enum": [
+        "sync",
+        "stream",
+        "async_job"
+      ],
+      "title": "InvocationMode",
+      "type": "string"
+    },
+    "ObservabilityLevel": {
+      "enum": [
+        "status_only",
+        "events",
+        "transcript"
+      ],
+      "title": "ObservabilityLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_type": {
+      "description": "Stable adapter identifier, e.g. 'claude-agent-sdk'.",
+      "title": "Adapter Type",
+      "type": "string"
+    },
+    "provider": {
+      "title": "Provider",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/Capability"
+      },
+      "minItems": 1,
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "invocation_modes": {
+      "items": {
+        "$ref": "#/$defs/InvocationMode"
+      },
+      "minItems": 1,
+      "title": "Invocation Modes",
+      "type": "array"
+    },
+    "required_permissions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Permissions",
+      "type": "array"
+    },
+    "supported_artifact_types": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Artifact Types",
+      "type": "array"
+    },
+    "cost_model": {
+      "$ref": "#/$defs/CostModel"
+    },
+    "observability_level": {
+      "$ref": "#/$defs/ObservabilityLevel"
+    },
+    "supports_cancel": {
+      "default": false,
+      "title": "Supports Cancel",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "adapter_type",
+    "provider",
+    "capabilities",
+    "invocation_modes",
+    "cost_model",
+    "observability_level"
+  ],
+  "title": "CapabilityManifest",
+  "type": "object"
+}

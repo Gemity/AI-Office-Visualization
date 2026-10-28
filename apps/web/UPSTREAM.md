@@ -5,7 +5,7 @@ Thư mục này được fork từ `web/` của Pixel Office.
 - Repo: https://github.com/basriayaz/pixel-office
 - Commit gốc: `4ebfdc7e4538eb68ea987f57ccf2810bc488a39c` (2026-10-06)
 - License: MIT — xem `LICENSE` (Copyright (c) 2026 Basri Ayaz). Không xóa hoặc sửa file này.
-- Logo trong `logos/` là nhãn hiệu của chủ sở hữu tương ứng, không thuộc MIT.
+- Logo trong `logos/` là nhãn hiệu của chủ sở hữu tương ứng, không thuộc MIT; giữ lại vì dự án chỉ dùng cá nhân, phi thương mại.
 
 Chỉ fork frontend; backend upstream (`src/server/`, Node/Express) **không** được dùng — backend của dự án là FastAPI trong `apps/api/` (ADR-0001).
 
