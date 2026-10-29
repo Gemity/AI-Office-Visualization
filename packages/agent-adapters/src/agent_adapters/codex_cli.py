@@ -26,7 +26,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from office_contracts import AgentEventKind, AgentResult, CapabilityManifest
+from office_contracts import (
+    AgentEventKind,
+    AgentResult,
+    Capability,
+    CapabilityManifest,
+    ConfigField,
+)
 
 from agent_adapters import sandbox
 from agent_adapters.runner import AdapterRunError, RunContext, TaskBackedAdapter
@@ -37,6 +43,40 @@ ALLOWED_SANDBOXES = {"read-only", "workspace-write"}  # never danger-full-access
 
 class CodexCliAdapter(TaskBackedAdapter):
     adapter_type = "codex-cli"
+    config_fields = [
+        ConfigField(
+            key="model",
+            type="string",
+            description="Model Codex (`-m`); bỏ trống = mặc định của Codex.",
+            example="gpt-5-codex",
+        ),
+        ConfigField(
+            key="sandbox",
+            type="string",
+            description="Quyền ghi file của Codex trong thư mục task.",
+            choices=sorted(ALLOWED_SANDBOXES),
+            default="workspace-write",
+        ),
+        ConfigField(
+            key="extra_args",
+            type="string[]",
+            description="Tham số thêm cho `codex exec`, đặt trước prompt.",
+            example=["-c", "model_reasoning_effort=high"],
+        ),
+        ConfigField(
+            key="cli_path",
+            type="string",
+            description="Đường dẫn CLI `codex`.",
+            default="codex",
+        ),
+        ConfigField(
+            key="capabilities",
+            type="string[]",
+            description="Việc worker nhận được; Điều phối giao task theo các nhãn này.",
+            default=["chat", "code"],
+            choices=[c.value for c in Capability],
+        ),
+    ]
 
     def __init__(self, config=None):
         super().__init__(config)

@@ -73,18 +73,24 @@
       <section class="po-tab" id="tab-agents">
         <div id="agentList"></div>
         <form class="po-form" id="agentForm">
-          <h3>Thêm agent</h3>
+          <h3 id="agFormTitle">Thêm worker</h3>
+          <p class="po-muted">Điều phối được cấu hình ở đầu file <code>office-launch.py</code>.</p>
           <label>Tên <input id="agName" required maxlength="200" /></label>
           <label>Adapter <select id="agAdapter" class="po-select"></select></label>
-          <label>Vai trò
-            <select id="agRole" class="po-select">
-              <option value="worker">worker</option>
-              <option value="orchestrator">orchestrator (thay thế điều phối hiện tại)</option>
-            </select>
-          </label>
-          <label>Capabilities <input id="agCaps" placeholder="chat, code" /></label>
-          <label>Config (JSON) <textarea id="agConfig" rows="3">{}</textarea></label>
-          <button class="po-btn primary" type="submit">Thêm</button>
+          <div class="po-muted" id="agAdapterNote"></div>
+          <fieldset class="po-caps">
+            <legend>Capabilities</legend>
+            <div id="agCaps"></div>
+          </fieldset>
+          <label>Config (JSON) <textarea id="agConfig" rows="5">{}</textarea></label>
+          <details class="po-help">
+            <summary>Hướng dẫn config <button class="po-btn po-mini" type="button" id="agSample">Điền mẫu</button></summary>
+            <div id="agHelp"></div>
+          </details>
+          <div class="po-row">
+            <button class="po-btn primary" type="submit" id="agSubmit">Thêm</button>
+            <button class="po-btn" type="button" id="agCancel" hidden>Huỷ</button>
+          </div>
           <p class="po-error" id="agentError" hidden></p>
         </form>
       </section>

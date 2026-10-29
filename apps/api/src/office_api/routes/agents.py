@@ -1,9 +1,9 @@
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from agent_adapters import ADAPTERS, create_adapter
+from agent_adapters import ADAPTERS, config_fields, create_adapter
 from fastapi import APIRouter, Header, Request
-from office_contracts import CapabilityManifest, EventType
+from office_contracts import Capability, CapabilityManifest, ConfigField, EventType
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
@@ -27,6 +27,9 @@ router = APIRouter(tags=["agents"])
 class AdapterInfo(BaseModel):
     adapter_type: str
     default_manifest: CapabilityManifest
+    config_fields: list[ConfigField] = Field(
+        description="Documented config keys; 'capabilities' present = capabilities are editable."
+    )
 
 
 class AgentCreate(BaseModel):
@@ -56,6 +59,7 @@ class AgentOut(BaseModel):
     enabled: bool
     is_active_orchestrator: bool
     capabilities: list[str]
+    config: dict[str, Any] = Field(description="Adapter config (non-secret).")
     current_runs: list[CurrentRun]
     created_at: datetime
 
@@ -63,9 +67,19 @@ class AgentOut(BaseModel):
 @router.get("/adapters", response_model=list[AdapterInfo])
 async def list_adapters(principal: CurrentPrincipal):
     return [
-        AdapterInfo(adapter_type=t, default_manifest=cls().describe_capabilities())
+        AdapterInfo(
+            adapter_type=t,
+            default_manifest=cls().describe_capabilities(),
+            config_fields=config_fields(t),
+        )
         for t, cls in ADAPTERS.items()
     ]
+
+
+@router.get("/capabilities", response_model=list[Capability])
+async def list_capabilities(principal: CurrentPrincipal):
+    """Every capability a worker can declare and a task can require."""
+    return list(Capability)
 
 
 @router.post(
@@ -196,6 +210,123 @@ def _out(
         enabled=enabled,
         is_active_orchestrator=is_active_orchestrator,
         capabilities=agent.capability_manifest.get("capabilities", []),
+        config=agent.config,
         current_runs=current_runs,
         created_at=agent.created_at,
     )
+
+
+class AgentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    config: dict[str, Any] | None = Field(
+        default=None, description="Replaces the whole adapter config (non-secret)."
+    )
+
+
+class _NoBody(BaseModel):
+    pass
+
+
+async def _editable_worker(
+    session, project_id: str, agent_id: str
+) -> tuple[AgentDefinition, ProjectAgent]:
+    """Workers only, and only while idle: a running run keeps using the adapter
+    instance (and config) it started with, and cancel must reach that instance."""
+    assignment = await session.get(ProjectAgent, (project_id, agent_id))
+    if assignment is None or not assignment.enabled:
+        raise ApiError(404, "agent_not_found", "Agent not found")
+    if assignment.role != "worker":
+        raise ApiError(
+            409, "orchestrator_managed", "The Orchestrator is configured by office-launch.py"
+        )
+    busy = await session.scalar(
+        select(func.count())
+        .select_from(AgentRun)
+        .where(
+            AgentRun.project_id == project_id,
+            AgentRun.agent_id == agent_id,
+            AgentRun.status.in_(ACTIVE_RUN_STATES),
+        )
+    )
+    if busy:
+        raise ApiError(409, "agent_busy", "Agent has a run in progress; retry when it is idle")
+    return await session.get(AgentDefinition, agent_id), assignment
+
+
+@router.patch("/projects/{project_id}/agents/{agent_id}", response_model=WriteResponse[AgentOut])
+async def update_agent(
+    project_id: str,
+    agent_id: str,
+    body: AgentUpdate,
+    request: Request,
+    member: OwnerMembership,
+    session: Session,
+    idempotency_key: Annotated[str, Header(min_length=1, max_length=200)],
+):
+    """Renames a worker and/or replaces its adapter config (applies to its next runs)."""
+
+    async def handler() -> AgentOut:
+        agent, assignment = await _editable_worker(session, project_id, agent_id)
+        changed = []
+        if body.name is not None and body.name != agent.name:
+            agent.name = body.name
+            changed.append("name")
+        if body.config is not None and body.config != agent.config:
+            try:
+                manifest = create_adapter(agent.adapter_type, body.config).describe_capabilities()
+            except (ValueError, TypeError) as exc:
+                raise ApiError(422, "invalid_agent_config", str(exc)) from None
+            agent.config = body.config
+            agent.capability_manifest = manifest.model_dump(mode="json")
+            changed.append("config")
+        if changed:
+            await append_event(
+                session,
+                project_id=project_id,
+                type=EventType.AGENT_UPDATED,
+                actor_id=member.principal_id,
+                payload={"agent_id": agent.id, "name": agent.name, "changed": changed},
+            )
+        return _out(agent, assignment.role, True, False, [])
+
+    response, data = await idempotency.write(
+        request, session, member.principal_id, idempotency_key, body, handler, status_code=200
+    )
+    if data is not None:
+        request.app.state.runtime.forget_adapter(agent_id)
+        request.app.state.runtime.wake()
+    return response
+
+
+@router.delete("/projects/{project_id}/agents/{agent_id}", response_model=WriteResponse[AgentOut])
+async def remove_agent(
+    project_id: str,
+    agent_id: str,
+    request: Request,
+    member: OwnerMembership,
+    session: Session,
+    idempotency_key: Annotated[str, Header(min_length=1, max_length=200)],
+):
+    """Removes a worker from the project. Its history (runs, messages, events) stays,
+    so it is listed with ``enabled=false``; it gets no new work, and pending
+    meetings/DMs that need it are blocked (``participant_unavailable``)."""
+
+    async def handler() -> AgentOut:
+        agent, assignment = await _editable_worker(session, project_id, agent_id)
+        assignment.enabled = False
+        await append_event(
+            session,
+            project_id=project_id,
+            type=EventType.AGENT_REMOVED,
+            actor_id=member.principal_id,
+            payload={"agent_id": agent.id, "name": agent.name},
+        )
+        return _out(agent, assignment.role, False, False, [])
+
+    response, data = await idempotency.write(
+        request, session, member.principal_id, idempotency_key, _NoBody(), handler, status_code=200
+    )
+    if data is not None:
+        request.app.state.runtime.forget_adapter(agent_id)
+        request.app.state.runtime.wake()
+    return response

@@ -16,11 +16,12 @@ Nguyên tắc: **One Project → One Active Orchestrator → Many Workers → On
 Dự án dùng cá nhân, phi thương mại.
 
 **Phase 0 xong** (ADR-0002): contracts, DB schema, project-scoped auth, event stream.
-**Phase 1 xong** (ADR-0003): agent registry, Owner ↔ Orchestrator chat, task runtime trên DB (DAG, dispatch theo capability, song song, retry, khôi phục), adapter `claude-agent-sdk` / `codex-cli` / `mock` — đã chạy thật với Claude + Codex.
+**Phase 1 xong** (ADR-0003): agent registry, Owner ↔ Orchestrator chat, task runtime trên DB (DAG, dispatch theo capability, song song, retry, khôi phục), adapter `claude-cli` (trước là `claude-agent-sdk`) / `codex-cli` / `mock` — đã chạy thật với Claude + Codex.
 **Phase 2 xong** (ADR-0004): meeting/DM là task (`kind meeting|dm`, hub có moderator, biên bản, decision, action item), interventions (pause/resume/cancel/redirect, `requested → applied|rejected`), lọc timeline. UI mới `apps/web/index.html` + `po-app.js` là projection từ REST + WebSocket trên renderer Pixel Office (`observeOnly`).
 **Phase 3 xong** (ADR-0005): adapter async job (`AsyncJobAdapter`, mock `mock-suno`/`mock-tripo`), approval gate cho hành động rủi ro cao (BR-07), artifact viewer/content an toàn, metrics chi phí.
 **Phase 4 xong** (ADR-0006): sandbox bubblewrap mặc định cho adapter CLI, gắn lại job async sau restart, ngân sách + circuit breaker, Alembic, log redaction + security headers, backup/healthcheck, deploy local (systemd `--user`, `docs/deploy-local.md`), e2e AC-01…AC-10 + NFR trong `tests/e2e/`.
 **Chốt §18** (ADR-0007): giữ runtime tự viết, deploy local-first, policy mặc định do Owner cấu hình trong `office-policy.toml` (transcript DM riêng, retention, ngân sách mặc định, quyền can thiệp của observer, TTL approval).
+**Launcher** (ADR-0008): `scripts/office-launch.py` — một file mang sang repo target (`.claude/`/`.agents/`); khối CẤU HÌNH đầu file (OFFICE_HOME, PORT, ORCHESTRATOR). Bấm là chạy server + tạo project theo repo + đồng bộ Điều phối + mở UI đã đăng nhập. Điều phối không có avatar trong Office, UI chỉ thêm/sửa/xoá worker (`PATCH`/`DELETE /projects/{id}/agents/{agent_id}`: chỉ worker đang rảnh; xoá = `enabled=false`, giữ lịch sử).
 Chưa làm: Postgres (chưa kiểm chứng), secret vault, API/quota thật của Suno/Tripo.
 
 ## Lệnh
@@ -58,7 +59,7 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
   - `runner.py` — `TaskBackedAdapter`: nền chung (idempotent invoke, cancel requested→confirmed, phát lại event, quét artifact trong workdir). Adapter mới chỉ cần `describe_capabilities()` + `_execute(ctx)`.
   - `jobs.py` — `AsyncJobAdapter`: worker dạng job (submit/poll/cancel), `provider_ref` + progress thật, output ghi vào workdir; `resume(request, provider_ref)` gắn lại job sau restart, `detach()` khi tắt (không hủy job ở provider).
   - `sandbox.py` — bọc lệnh CLI bằng bubblewrap theo `SandboxPolicy` (ẩn → chỉ đọc → ghi được); thiếu bwrap ⇒ `sandbox_unavailable`. Codex trong bwrap dùng `-s danger-full-access` (sandbox riêng của nó cần userns lồng).
-  - `claude_sdk.py`, `codex_cli.py`, `mock.py`, `mock_jobs.py` (`mock-suno`, `mock-tripo`); `registry.py` (`create_adapter`). Gọi không có `workdir` ⇒ không cho ghi file.
+  - `claude_cli.py` (`claude-cli`: CLI `claude` qua thư viện Claude Agent SDK), `codex_cli.py`, `mock.py`, `mock_jobs.py` (`mock-suno`, `mock-tripo`); `registry.py` (`create_adapter`, `config_fields`). Mỗi adapter khai báo `config_fields` (`ConfigField`) để UI hướng dẫn điền config. Gọi không có `workdir` ⇒ không cho ghi file.
 - `apps/api/src/office_api/`:
   - `models.py` — toàn bộ schema §9. Tham chiếu giữa bảng project-scoped dùng composite FK `(project_id, x_id)`; BR-01 là unique partial index. Không có ORM relationship ⇒ phải `flush()` row cha trước khi thêm row con.
   - `auth.py` — `Membership` dependency là cách duy nhất để vào route `/projects/{project_id}/...`; không phải thành viên → 404.
@@ -90,7 +91,7 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
 Đã chốt §18 (ADR-0007): runtime tự viết (không LangGraph/workflow engine), deploy local-first, policy mặc định qua `office-policy.toml`.
 
 Còn mở — **không tự chốt**, hỏi Owner hoặc ghi ADR trong `docs/adr/`:
-- Tích hợp Claude/Codex qua SDK/API hay CLI (hiện: Claude Agent SDK + Codex CLI).
+- Tích hợp Claude/Codex qua SDK/API hay CLI (hiện: CLI `claude` + CLI `codex`, đều dùng đăng nhập của máy).
 - API/quota chính thức của Suno/Tripo (dùng mock cho tới khi xác minh).
 
 ## Cấu trúc repo đề xuất (spec §17)

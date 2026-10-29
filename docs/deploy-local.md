@@ -34,6 +34,26 @@ uv run office-api create-owner --name "Tên"   # token chỉ in một lần — 
 
 DB tạo bằng phiên bản trước Phase 4 (`create_all`) sẽ bị từ chối. Với dữ liệu dev thì xóa file DB cũ rồi chạy lại.
 
+## Launcher bấm-là-chạy (`scripts/office-launch.py`)
+
+Chỉ cần mang **một file**. Chép vào repo muốn làm việc (`<repo>/.claude/office-launch.py`, `.agents/` hoặc gốc repo) rồi `chmod +x`. Cấu hình nằm ở khối **CẤU HÌNH** đầu file:
+- `OFFICE_HOME`: nơi cài AI Project Office;
+- `PORT`;
+- `ORCHESTRATOR`: tên, adapter, config (model, effort, system_prompt…).
+
+Mỗi lần double-click hoặc chạy `./office-launch.py`:
+- khởi động server nếu chưa chạy (có unit systemd thì dùng `systemctl --user start`, không thì chạy nền, log ở `~/.local/share/ai-project-office/server.log`);
+- lần đầu: tạo Owner, lưu token vào `~/.config/ai-project-office/token` (quyền 600). DB đã có Owner thì hỏi token qua hộp thoại;
+- tìm hoặc tạo project gắn với repo (`config.repo_path`, tên = tên thư mục repo);
+- đảm bảo project có Điều phối đúng `ORCHESTRATOR`. Lần đầu thì tạo; config khác thì thay bằng phiên bản mới (BR-01: có version + event `agent.assigned`, bản cũ còn trong lịch sử);
+- mở trình duyệt đã đăng nhập sẵn vào project: chat với Điều phối được ngay.
+
+Điều phối không có avatar trong Office và không thêm/sửa từ UI. Tab Agent dùng để thêm, sửa, xoá worker (chọn capabilities bằng checkbox, có hướng dẫn từng khóa config và nút "Điền mẫu"). Adapter `claude-cli` chạy CLI `claude`, `codex-cli` chạy CLI `codex`, cả hai dùng đăng nhập sẵn có trên máy.
+
+Tùy chọn: `--stop` dừng server; `--no-browser` chỉ in URL.
+
+GNOME/Nautilus mặc định mở file `.py` bằng trình soạn thảo. Muốn double-click là chạy: Files → Preferences → "Executable Text Files" → **Run** (hoặc **Ask**).
+
 ## Chạy nền bằng systemd --user
 
 Mẫu nằm trong `infra/systemd/` và giả định repo ở `~/UnityProject/AI-Office-Visualization`. Nếu khác, sửa `WorkingDirectory`.

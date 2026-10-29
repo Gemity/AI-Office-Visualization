@@ -143,6 +143,10 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
     async def _commit(self, s: AsyncSession) -> None:
         await commit_and_publish(s, self.broker)
 
+    def forget_adapter(self, agent_id: str) -> None:
+        """Next run builds the adapter again from the (edited) agent config."""
+        self._adapters.pop(agent_id, None)
+
     def adapter_for(self, agent: AgentDefinition) -> AgentAdapter:
         if agent.id not in self._adapters:
             self._adapters[agent.id] = create_adapter(agent.adapter_type, agent.config)

@@ -1,4 +1,5 @@
-"""Claude via the Claude Agent SDK (runs the locally logged-in Claude Code CLI).
+"""Claude Code CLI (`claude`, logged in on this machine), driven through the
+Claude Agent SDK Python library, which starts the CLI as a subprocess.
 
 Config:
   model: str                     e.g. "claude-sonnet-5-5"; default: CLI default
@@ -10,7 +11,8 @@ Config:
   effort: str                    low | medium | high | xhigh | max
   capabilities: list[str]        default ["chat", "code"]
   system_prompt: str             appended role description
-  cli_path: str                  Claude Code CLI; default: the SDK's bundled CLI or `claude`
+  cli_path: str                  Claude Code CLI; default: `claude` on PATH, else the
+                                 copy bundled with the SDK
 
 With ``invocation.sandbox.mode == 'bwrap'`` the CLI runs inside bubblewrap
 (see sandbox.py); it may additionally write its own state (~/.claude*).
@@ -21,7 +23,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from office_contracts import AgentEventKind, AgentResult, CapabilityManifest
+from office_contracts import (
+    AgentEventKind,
+    AgentResult,
+    Capability,
+    CapabilityManifest,
+    ConfigField,
+)
 
 from agent_adapters import sandbox
 from agent_adapters.runner import AdapterRunError, RunContext, TaskBackedAdapter
@@ -34,18 +42,71 @@ CLI_STATE = ["~/.claude", "~/.claude.json", "~/.claude.json.backup", "~/.cache/c
 def _real_cli(configured: str | None) -> str:
     if configured:
         return configured
+    if found := shutil.which("claude"):
+        return found
     import claude_agent_sdk
 
     bundled = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
     if bundled.is_file():
         return str(bundled)
-    if found := shutil.which("claude"):
-        return found
     raise AdapterRunError("cli_not_found", "Claude Code CLI not found", retryable=False)
 
 
-class ClaudeAgentSdkAdapter(TaskBackedAdapter):
-    adapter_type = "claude-agent-sdk"
+class ClaudeCliAdapter(TaskBackedAdapter):
+    adapter_type = "claude-cli"
+    config_fields = [
+        ConfigField(
+            key="model",
+            type="string",
+            description="Model Claude; bỏ trống = mặc định của CLI.",
+            example="claude-sonnet-5-5",
+        ),
+        ConfigField(
+            key="effort",
+            type="string",
+            description="Mức suy nghĩ; cao hơn = kỹ hơn nhưng chậm và tốn hơn.",
+            choices=["low", "medium", "high", "xhigh", "max"],
+            example="high",
+        ),
+        ConfigField(
+            key="system_prompt",
+            type="string",
+            description="Mô tả vai trò/bối cảnh, nối thêm vào prompt hệ thống.",
+            example="Bạn là reviewer khó tính, ưu tiên test và bảo mật.",
+        ),
+        ConfigField(
+            key="tools",
+            type="string[]",
+            description="Tool có sẵn của Claude Code khi làm task; [] = chỉ trả lời chữ.",
+            default=DEFAULT_TOOLS,
+            example=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+        ),
+        ConfigField(
+            key="max_turns",
+            type="integer",
+            description="Số lượt tối đa của agent trong một task.",
+            default=30,
+        ),
+        ConfigField(
+            key="permission_mode",
+            type="string",
+            description="Quyền sửa file; acceptEdits = tự sửa trong thư mục task.",
+            choices=["default", "acceptEdits", "plan", "bypassPermissions"],
+            default="acceptEdits",
+        ),
+        ConfigField(
+            key="cli_path",
+            type="string",
+            description="Đường dẫn CLI `claude`; bỏ trống = tìm trong PATH.",
+        ),
+        ConfigField(
+            key="capabilities",
+            type="string[]",
+            description="Việc worker nhận được; Điều phối giao task theo các nhãn này.",
+            default=["chat", "code"],
+            choices=[c.value for c in Capability],
+        ),
+    ]
 
     def __init__(self, config=None, query_fn=None):
         super().__init__(config)

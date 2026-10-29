@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class EventType(StrEnum):
     PROJECT_CREATED = "project.created"
     AGENT_ASSIGNED = "agent.assigned"
+    AGENT_UPDATED = "agent.updated"
+    AGENT_REMOVED = "agent.removed"
     TASK_CREATED = "task.created"
     TASK_STARTED = "task.started"
     TASK_BLOCKED = "task.blocked"

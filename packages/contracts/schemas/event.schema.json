@@ -6,6 +6,8 @@
       "enum": [
         "project.created",
         "agent.assigned",
+        "agent.updated",
+        "agent.removed",
         "task.created",
         "task.started",
         "task.blocked",

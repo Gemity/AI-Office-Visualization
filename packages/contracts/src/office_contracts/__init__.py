@@ -9,6 +9,7 @@ from office_contracts.adapter import (
     CancelResult,
     Capability,
     CapabilityManifest,
+    ConfigField,
     CostModel,
     CostUnit,
     InvocationHandle,
@@ -25,6 +26,7 @@ from office_contracts.policy import ApprovalScope, RiskAction
 SCHEMA_MODELS = {
     "event": Event,
     "capability-manifest": CapabilityManifest,
+    "config-field": ConfigField,
     "agent-invocation": AgentInvocation,
     "invocation-handle": InvocationHandle,
     "agent-status": AgentStatus,
@@ -48,6 +50,7 @@ __all__ = [
     "CancelResult",
     "Capability",
     "CapabilityManifest",
+    "ConfigField",
     "CostModel",
     "CostUnit",
     "Event",

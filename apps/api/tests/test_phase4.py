@@ -102,6 +102,7 @@ def test_migrations_match_models_exactly(settings):
     needs `office-api makemigration` (ADR-0006)."""
     from alembic.autogenerate import compare_metadata
     from alembic.migration import MigrationContext
+    from alembic.script import ScriptDirectory
     from office_api import migrations
     from office_api.db import Base
     from sqlalchemy import create_engine
@@ -111,7 +112,33 @@ def test_migrations_match_models_exactly(settings):
         migrations.upgrade(conn)
         ctx = MigrationContext.configure(conn, opts={"compare_type": True})
         assert compare_metadata(ctx, Base.metadata) == []
-        assert conn.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == "0001"
+        head = ScriptDirectory.from_config(migrations.config()).get_current_head()
+        assert conn.exec_driver_sql("SELECT version_num FROM alembic_version").scalar() == head
+    engine.dispose()
+
+
+def test_migration_0002_renames_claude_adapter_in_existing_data(settings):
+    import json
+
+    from alembic import command
+    from office_api import migrations
+    from sqlalchemy import create_engine
+
+    engine = create_engine(_sync_url(settings))
+    with engine.begin() as conn:
+        command.upgrade(migrations.config(conn), "0001")
+        conn.exec_driver_sql(
+            "INSERT INTO agent_definitions (id, name, provider, adapter_type, capability_manifest,"
+            " config, created_at) VALUES ('agt_1', 'C', 'anthropic', 'claude-agent-sdk',"
+            """ '{"adapter_type": "claude-agent-sdk", "capabilities": ["code"]}', '{}',"""
+            " '2026-10-28 00:00:00')"
+        )
+        command.upgrade(migrations.config(conn), "head")
+        row = conn.exec_driver_sql(
+            "SELECT adapter_type, capability_manifest FROM agent_definitions"
+        ).one()
+        assert row[0] == "claude-cli"
+        assert json.loads(row[1]) == {"adapter_type": "claude-cli", "capabilities": ["code"]}
     engine.dispose()
 
 

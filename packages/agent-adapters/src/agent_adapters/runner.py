@@ -74,6 +74,8 @@ class _Run:
 
 
 class TaskBackedAdapter:
+    config_fields: list = []  # office_contracts.ConfigField, documents the config keys
+
     def __init__(self, config: dict[str, Any] | None = None):
         self.config = config or {}
         self._runs: dict[str, _Run] = {}

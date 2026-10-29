@@ -16,13 +16,48 @@ Config:
 import asyncio
 from pathlib import Path
 
-from office_contracts import AgentEventKind, AgentResult, CapabilityManifest
+from office_contracts import (
+    AgentEventKind,
+    AgentResult,
+    Capability,
+    CapabilityManifest,
+    ConfigField,
+)
 
 from agent_adapters.runner import AdapterRunError, RunContext, TaskBackedAdapter
 
 
 class MockAdapter(TaskBackedAdapter):
+    """For tests and demos: answers from a script, never calls a provider."""
+
     adapter_type = "mock"
+    config_fields = [
+        ConfigField(
+            key="responses",
+            type="object[]",
+            description="Kịch bản trả lời lần lượt (hết thì lặp cái cuối): text, files.",
+            example=[{"text": "Đã xong", "files": {"notes.md": "# Ghi chú"}}],
+        ),
+        ConfigField(
+            key="delay_s",
+            type="number",
+            description="Thời gian giả lập mỗi việc (giây).",
+            default=0.05,
+        ),
+        ConfigField(
+            key="permissions",
+            type="string[]",
+            description="Quyền khai báo (để thử approval rủi ro cao).",
+            default=[],
+        ),
+        ConfigField(
+            key="capabilities",
+            type="string[]",
+            description="Việc worker nhận được; Điều phối giao task theo các nhãn này.",
+            default=["chat", "code"],
+            choices=[c.value for c in Capability],
+        ),
+    ]
 
     def __init__(self, config=None):
         super().__init__(config)

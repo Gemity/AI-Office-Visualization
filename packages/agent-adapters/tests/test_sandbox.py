@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 from agent_adapters import sandbox
-from agent_adapters.claude_sdk import ClaudeAgentSdkAdapter
+from agent_adapters.claude_cli import ClaudeCliAdapter
 from agent_adapters.codex_cli import CodexCliAdapter
 from agent_adapters.runner import AdapterRunError, RunContext
 from office_contracts import SandboxPolicy
@@ -96,7 +96,7 @@ def test_codex_inside_bwrap_uses_outer_sandbox_only(tmp_path, monkeypatch):
 
 def test_claude_uses_sandboxed_cli_wrapper(tmp_path, monkeypatch):
     monkeypatch.setattr(sandbox, "bwrap_path", lambda: "/usr/bin/bwrap")
-    adapter = ClaudeAgentSdkAdapter({"cli_path": "/opt/claude"})
+    adapter = ClaudeCliAdapter({"cli_path": "/opt/claude"})
     policy = SandboxPolicy(mode="bwrap", writable=[str(tmp_path)])
     options = adapter.build_options(
         RunContext("h", invocation(workdir=str(tmp_path), sandbox=policy)), tmp_path

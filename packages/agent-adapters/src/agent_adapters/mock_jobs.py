@@ -27,7 +27,7 @@ import wave
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from office_contracts import AgentError, AgentInvocation, CapabilityManifest
+from office_contracts import AgentError, AgentInvocation, CapabilityManifest, ConfigField
 
 from agent_adapters.jobs import AsyncJobAdapter, JobStatus
 from agent_adapters.runner import AdapterRunError
@@ -107,6 +107,29 @@ class MockJobService:
 
 class _MockJobAdapter(AsyncJobAdapter):
     provider = ""
+    config_fields = [
+        ConfigField(
+            key="duration_s",
+            type="number",
+            description="Thời gian chạy mỗi job (giây).",
+            default=3,
+        ),
+        ConfigField(
+            key="poll_s", type="number", description="Chu kỳ hỏi trạng thái job.", default=0.5
+        ),
+        ConfigField(
+            key="fail_first",
+            type="integer",
+            description="N job đầu tiên lỗi (để thử retry).",
+            default=0,
+        ),
+        ConfigField(
+            key="price_usd",
+            type="number",
+            description="Giá giả lập mỗi job, tính vào chi phí.",
+            example=0.1,
+        ),
+    ]
     capabilities: list[str] = []
     artifact_types: list[str] = []
 

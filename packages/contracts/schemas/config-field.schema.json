@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-project-office.local/schemas/config-field.schema.json",
+  "additionalProperties": false,
+  "description": "One documented key of an adapter's (non-secret) config, for UIs and docs.",
+  "properties": {
+    "key": {
+      "title": "Key",
+      "type": "string"
+    },
+    "type": {
+      "enum": [
+        "string",
+        "integer",
+        "number",
+        "boolean",
+        "string[]",
+        "object[]"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "default": {
+      "default": null,
+      "description": "Value used when the key is absent.",
+      "title": "Default"
+    },
+    "choices": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Allowed values, if fixed.",
+      "title": "Choices"
+    },
+    "example": {
+      "default": null,
+      "description": "A sensible value to start from.",
+      "title": "Example"
+    }
+  },
+  "required": [
+    "key",
+    "type",
+    "description"
+  ],
+  "title": "ConfigField",
+  "type": "object"
+}

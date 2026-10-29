@@ -55,7 +55,7 @@ class CostModel(_Model):
 class CapabilityManifest(_Model):
     model_config = ConfigDict(title="CapabilityManifest")
 
-    adapter_type: str = Field(description="Stable adapter identifier, e.g. 'claude-agent-sdk'.")
+    adapter_type: str = Field(description="Stable adapter identifier, e.g. 'claude-cli'.")
     provider: str
     capabilities: list[Capability] = Field(min_length=1)
     invocation_modes: list[InvocationMode] = Field(min_length=1)
@@ -64,6 +64,19 @@ class CapabilityManifest(_Model):
     cost_model: CostModel
     observability_level: ObservabilityLevel
     supports_cancel: bool = False
+
+
+class ConfigField(_Model):
+    """One documented key of an adapter's (non-secret) config, for UIs and docs."""
+
+    model_config = ConfigDict(title="ConfigField")
+
+    key: str
+    type: Literal["string", "integer", "number", "boolean", "string[]", "object[]"]
+    description: str
+    default: Any = Field(default=None, description="Value used when the key is absent.")
+    choices: list[str] | None = Field(default=None, description="Allowed values, if fixed.")
+    example: Any = Field(default=None, description="A sensible value to start from.")
 
 
 class InvocationLimits(_Model):

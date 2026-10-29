@@ -91,7 +91,7 @@
   "additionalProperties": false,
   "properties": {
     "adapter_type": {
-      "description": "Stable adapter identifier, e.g. 'claude-agent-sdk'.",
+      "description": "Stable adapter identifier, e.g. 'claude-cli'.",
       "title": "Adapter Type",
       "type": "string"
     },

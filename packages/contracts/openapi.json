@@ -468,6 +468,60 @@
         }
       }
     },
+    "/capabilities": {
+      "get": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "List Capabilities",
+        "description": "Every capability a worker can declare and a task can require.",
+        "operationId": "list_capabilities_capabilities_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Capability"
+                  },
+                  "title": "Response List Capabilities Capabilities Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/projects/{project_id}/agents": {
       "post": {
         "tags": [
@@ -591,6 +645,172 @@
                     "$ref": "#/components/schemas/AgentOut"
                   },
                   "title": "Response List Agents Projects  Project Id  Agents Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{project_id}/agents/{agent_id}": {
+      "patch": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Update Agent",
+        "description": "Renames a worker and/or replaces its adapter config (applies to its next runs).",
+        "operationId": "update_agent_projects__project_id__agents__agent_id__patch",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteResponse_AgentOut_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "agents"
+        ],
+        "summary": "Remove Agent",
+        "description": "Removes a worker from the project. Its history (runs, messages, events) stays,\nso it is listed with ``enabled=false``; it gets no new work, and pending\nmeetings/DMs that need it are blocked (``participant_unavailable``).",
+        "operationId": "remove_agent_projects__project_id__agents__agent_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Agent Id"
+            }
+          },
+          {
+            "name": "idempotency-key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WriteResponse_AgentOut_"
                 }
               }
             }
@@ -1509,12 +1729,21 @@
           },
           "default_manifest": {
             "$ref": "#/components/schemas/CapabilityManifest"
+          },
+          "config_fields": {
+            "items": {
+              "$ref": "#/components/schemas/ConfigField"
+            },
+            "type": "array",
+            "title": "Config Fields",
+            "description": "Documented config keys; 'capabilities' present = capabilities are editable."
           }
         },
         "type": "object",
         "required": [
           "adapter_type",
-          "default_manifest"
+          "default_manifest",
+          "config_fields"
         ],
         "title": "AdapterInfo"
       },
@@ -1658,6 +1887,12 @@
             "type": "array",
             "title": "Capabilities"
           },
+          "config": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Config",
+            "description": "Adapter config (non-secret)."
+          },
           "current_runs": {
             "items": {
               "$ref": "#/components/schemas/CurrentRun"
@@ -1681,10 +1916,43 @@
           "enabled",
           "is_active_orchestrator",
           "capabilities",
+          "config",
           "current_runs",
           "created_at"
         ],
         "title": "AgentOut"
+      },
+      "AgentUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config",
+            "description": "Replaces the whole adapter config (non-secret)."
+          }
+        },
+        "type": "object",
+        "title": "AgentUpdate"
       },
       "ApprovalOut": {
         "properties": {
@@ -1947,7 +2215,7 @@
           "adapter_type": {
             "type": "string",
             "title": "Adapter Type",
-            "description": "Stable adapter identifier, e.g. 'claude-agent-sdk'."
+            "description": "Stable adapter identifier, e.g. 'claude-cli'."
           },
           "provider": {
             "type": "string",
@@ -2006,6 +2274,62 @@
           "observability_level"
         ],
         "title": "CapabilityManifest"
+      },
+      "ConfigField": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "string",
+              "integer",
+              "number",
+              "boolean",
+              "string[]",
+              "object[]"
+            ],
+            "title": "Type"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "default": {
+            "title": "Default",
+            "description": "Value used when the key is absent."
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choices",
+            "description": "Allowed values, if fixed."
+          },
+          "example": {
+            "title": "Example",
+            "description": "A sensible value to start from."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "type",
+          "description"
+        ],
+        "title": "ConfigField",
+        "description": "One documented key of an adapter's (non-secret) config, for UIs and docs."
       },
       "ConversationOut": {
         "properties": {
@@ -2309,6 +2633,8 @@
         "enum": [
           "project.created",
           "agent.assigned",
+          "agent.updated",
+          "agent.removed",
           "task.created",
           "task.started",
           "task.blocked",

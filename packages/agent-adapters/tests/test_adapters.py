@@ -11,7 +11,7 @@ from agent_adapters import (
     SupportsEvents,
     create_adapter,
 )
-from agent_adapters.claude_sdk import ClaudeAgentSdkAdapter
+from agent_adapters.claude_cli import ClaudeCliAdapter
 from office_contracts import AgentInvocation, RunState
 
 TERMINAL = {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}
@@ -43,7 +43,7 @@ def run(coro):
     return asyncio.run(coro)
 
 
-@pytest.mark.parametrize("adapter_type", ["mock", "claude-agent-sdk", "codex-cli"])
+@pytest.mark.parametrize("adapter_type", ["mock", "claude-cli", "codex-cli"])
 def test_all_adapters_implement_full_contract(adapter_type):
     adapter = create_adapter(adapter_type)
     for proto in (AgentAdapter, SupportsCancel, SupportsEvents, SupportsArtifacts):
@@ -131,7 +131,7 @@ def test_claude_adapter_maps_stream_and_structured_output(tmp_path):
         )
 
     async def main():
-        adapter = ClaudeAgentSdkAdapter({"model": "m", "tools": []}, query_fn=fake_query)
+        adapter = ClaudeCliAdapter({"model": "m", "tools": []}, query_fn=fake_query)
         schema = {"type": "object"}
         inv = invocation(workdir=str(tmp_path), output_schema=schema)
         handle = await adapter.invoke(inv)
@@ -163,7 +163,7 @@ def test_claude_adapter_error_result_fails_run():
         )
 
     async def main():
-        adapter = ClaudeAgentSdkAdapter({}, query_fn=fake_query)
+        adapter = ClaudeCliAdapter({}, query_fn=fake_query)
         status = await wait_terminal(adapter, (await adapter.invoke(invocation())).handle_id)
         assert status.state == RunState.FAILED
         assert status.error.code == "error_max_turns"

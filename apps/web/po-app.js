@@ -23,21 +23,21 @@ const APPROVAL_STATUS = { pending: "chờ duyệt", approved: "đã duyệt", re
 const RISK_LABEL = { deploy_production: "deploy production", payment: "thanh toán", delete_data: "xóa dữ liệu", export_sensitive_data: "xuất dữ liệu nhạy cảm" };
 const IV_STATUS = { requested: "đã yêu cầu — chờ xác nhận", applied: "đã áp dụng", rejected: "bị từ chối" };
 const EVENT_LABEL = {
-  "project.created": "Tạo project", "agent.assigned": "Gán agent", "task.created": "Tạo task",
+  "project.created": "Tạo project", "agent.assigned": "Gán agent", "agent.updated": "Sửa agent", "agent.removed": "Xoá agent", "task.created": "Tạo task",
   "task.started": "Bắt đầu task", "task.blocked": "Task bị chặn", "task.completed": "Hoàn thành",
   "message.sent": "Tin nhắn", "meeting.started": "Bắt đầu họp", "meeting.ended": "Kết thúc họp",
   "decision.recorded": "Quyết định", "artifact.created": "Artifact", "approval.requested": "Xin duyệt",
   "approval.resolved": "Kết quả duyệt", "run.failed": "Run lỗi", "intervention.requested": "Yêu cầu can thiệp",
   "intervention.applied": "Can thiệp xử lý",
 };
-const ADAPTER_COLOR = { "claude-agent-sdk": "#d97757", "codex-cli": "#10a37f", mock: "#7aa2f7", "mock-suno": "#c792ea", "mock-tripo": "#89ddff" };
+const ADAPTER_COLOR = { "claude-cli": "#d97757", "codex-cli": "#10a37f", mock: "#7aa2f7", "mock-suno": "#c792ea", "mock-tripo": "#89ddff" };
 const JOB_POLL_MS = 2000; // async jobs report progress through the API, not through events
 const ERROR_SHOW_MS = 8000;
 const TIMELINE_MAX = 1500;
 
 const state = {
   token: null, projects: [], pid: null, project: null,
-  agents: [], tasks: [], convs: [], meetings: [], interventions: [], artifacts: [], adapters: [],
+  agents: [], tasks: [], convs: [], meetings: [], interventions: [], artifacts: [], adapters: [], capabilities: [], editAgent: null,
   approvals: [], metrics: null, artifact: null, artifactUrl: null, jobPoll: null,
   events: [], lastSeq: 0, chat: [], ws: null, wsTimer: null,
   openTasks: new Set(), talk: null, selectedAgent: null, errorUntil: new Map(), filter: "",
@@ -84,33 +84,36 @@ office.observeOnly = true;
 office.start();
 office.onClick((id) => selectAgent(id));
 
+// The Orchestrator has no desk in the Office: the Owner talks to it in the chat
+// panel, and it is configured by office-launch.py rather than in the UI.
+// Removed workers stay in state.agents (enabled=false) so history keeps their names.
+const workers = () => state.agents.filter((a) => a.role !== "orchestrator" && a.enabled);
+const isWorker = (id) => agentById(id)?.role === "worker";
+
 function syncOffice() {
   office.setEmployees(
-    state.agents.map((a) => ({
+    workers().map((a) => ({
       id: a.id,
       name: a.name,
-      role: a.is_active_orchestrator ? "điều phối" : a.role === "orchestrator" ? "điều phối (cũ)" : a.capabilities.join(", "),
-      color: a.is_active_orchestrator ? "#ffd166" : ADAPTER_COLOR[a.adapter_type] || "#9aa4b2",
+      role: a.capabilities.join(", "),
+      color: ADAPTER_COLOR[a.adapter_type] || "#9aa4b2",
     })),
   );
-  for (const a of state.agents) office.setStatus(a.id, agentStatus(a));
+  for (const a of workers()) office.setStatus(a.id, agentStatus(a));
   const inRoom = new Set();
-  for (const m of state.meetings.filter((m) => m.live)) {
-    m.participants.forEach((p) => inRoom.add(p));
-    inRoom.add(m.moderator_id);
-  }
+  for (const m of state.meetings.filter((m) => m.live)) m.participants.filter(isWorker).forEach((p) => inRoom.add(p));
   office.setMeeting([...inRoom]);
   office.fit();
-  $("officeNote").textContent = state.agents.length
+  $("officeNote").textContent = workers().length
     ? "Office chỉ hiển thị trạng thái có thật từ API/event; không có hoạt động giả lập."
-    : "Chưa có agent. Thêm ở tab Agent.";
+    : "Chưa có worker. Thêm ở tab Agent.";
   renderRoster();
 }
 
 function renderRoster() {
   const host = $("roster");
   host.replaceChildren();
-  for (const a of state.agents) {
+  for (const a of workers()) {
     const st = agentStatus(a);
     const chip = el("button", "roster-chip" + (state.selectedAgent === a.id ? " selected" : ""));
     chip.type = "button";
@@ -150,6 +153,7 @@ async function openProject(pid) {
     approvals: [], metrics: null, artifact: null,
   });
   $("artifactView").replaceChildren();
+  resetAgentForm();
   state.openTasks.clear();
   state.errorUntil.clear();
   localStorageSet("po.project", pid);
@@ -266,7 +270,7 @@ function handleEvent(e) {
 
   const t = e.type;
   if (t === "message.sent") {
-    if (agentById(e.actor_id) && e.payload.preview) office.speak(e.actor_id, e.payload.preview);
+    if (isWorker(e.actor_id) && e.payload.preview) office.speak(e.actor_id, e.payload.preview);
     markDirty("convs", "agents");
   } else if (t.startsWith("task.")) markDirty("tasks", "agents");
   else if (t === "run.failed") {
@@ -274,7 +278,7 @@ function handleEvent(e) {
     setTimeout(syncOffice, ERROR_SHOW_MS + 50);
     markDirty("tasks", "agents");
   } else if (t.startsWith("meeting.") || t === "decision.recorded") markDirty("meetings", "convs", "tasks", "agents");
-  else if (t === "agent.assigned") markDirty("agents");
+  else if (t === "agent.assigned" || t === "agent.updated" || t === "agent.removed") markDirty("agents");
   else if (t.startsWith("intervention.")) markDirty("interventions", "tasks", "project", "agents");
   else if (t === "artifact.created") markDirty("artifacts");
   else if (t.startsWith("approval.")) markDirty("approvals", "tasks");
@@ -343,7 +347,7 @@ $("chatForm").onsubmit = async (ev) => {
     markDirty("convs", "agents");
   } catch (e) {
     $("chatError").hidden = false;
-    $("chatError").textContent = e.code === "no_orchestrator" ? "Project chưa có Điều phối viên. Thêm agent vai trò orchestrator ở tab Agent." : e.message;
+    $("chatError").textContent = e.code === "no_orchestrator" ? "Project chưa có Điều phối viên. Mở project bằng office-launch.py (cấu hình Điều phối ở đầu file đó)." : e.message;
   }
 };
 $("chatInput").onkeydown = (ev) => { if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) $("chatForm").requestSubmit(); };
@@ -783,8 +787,9 @@ function appendTimeline(e) {
 function renderAgents() {
   const host = $("agentList");
   host.replaceChildren();
-  if (!state.agents.length) host.append(el("p", "po-empty", "Chưa có agent."));
-  for (const a of state.agents) {
+  const shown = state.agents.filter((a) => a.enabled);
+  if (!shown.length) host.append(el("p", "po-empty", "Chưa có agent."));
+  for (const a of shown) {
     const item = el("div", "po-list-item po-agent");
     item.append(el("span", "po-dot " + agentStatus(a)));
     const info = el("div");
@@ -795,15 +800,101 @@ function renderAgents() {
   }
 }
 
+const CAP_LABEL = {
+  chat: "trò chuyện, họp, DM", code: "viết/sửa code, tài liệu", image: "tạo ảnh", audio: "tạo nhạc/âm thanh",
+  "3d": "tạo mô hình 3D", tool_call: "gọi tool/API ngoài", async_job: "việc chạy dài dạng job",
+};
+
 async function loadAdapters() {
-  state.adapters = await api("GET", "/adapters");
+  [state.adapters, state.capabilities] = await Promise.all([api("GET", "/adapters"), api("GET", "/capabilities")]);
   const sel = $("agAdapter");
   sel.replaceChildren(...state.adapters.map((a) => Object.assign(el("option", null, a.adapter_type), { value: a.adapter_type })));
-  sel.onchange = () => {
-    const a = state.adapters.find((x) => x.adapter_type === sel.value);
-    $("agCaps").value = a ? a.default_manifest.capabilities.join(", ") : "";
-  };
-  sel.onchange();
+  if (state.adapters.some((a) => a.adapter_type === "claude-cli")) sel.value = "claude-cli";
+  sel.onchange = () => renderAgentForm();
+  renderAgentForm();
+}
+
+const adapterInfo = () => state.adapters.find((x) => x.adapter_type === $("agAdapter").value);
+
+// editing = agent being edited (null = adding a new worker).
+function renderAgentForm(editing = state.editAgent ? agentById(state.editAgent) : null) {
+  const info = adapterInfo();
+  if (!info) return;
+  const fields = info.config_fields;
+  const capField = fields.find((f) => f.key === "capabilities");
+  const caps = editing ? editing.capabilities : info.default_manifest.capabilities;
+  const box = $("agCaps");
+  box.replaceChildren();
+  for (const c of state.capabilities) {
+    const label = el("label", capField ? null : "fixed");
+    const cb = Object.assign(el("input"), { type: "checkbox", value: c, checked: caps.includes(c), disabled: !capField });
+    label.title = CAP_LABEL[c] || c;
+    label.append(cb, `${c}`);
+    box.append(label);
+  }
+  $("agAdapterNote").textContent = capField ? "" : "Capabilities cố định theo adapter.";
+  const help = $("agHelp");
+  help.replaceChildren();
+  for (const f of fields.filter((f) => f.key !== "capabilities")) {
+    const hint = f.choices ? f.choices.join(" | ") : f.default != null ? `mặc định ${JSON.stringify(f.default)}` : "";
+    const row = el("div", "po-help-row");
+    row.append(el("code", null, f.key), ` ${f.description}${hint ? ` (${hint})` : ""}`);
+    help.append(row);
+  }
+  if (!help.children.length) help.append(el("div", null, "Adapter này không có config."));
+}
+
+$("agSample").onclick = (ev) => {
+  ev.preventDefault(); // inside <summary>: don't toggle the help
+  const sample = {};
+  for (const f of adapterInfo()?.config_fields || []) {
+    if (f.key === "capabilities") continue;
+    const v = f.example ?? f.default;
+    if (v !== null && v !== undefined) sample[f.key] = v;
+  }
+  $("agConfig").value = JSON.stringify(sample, null, 2);
+};
+
+function startEditAgent(a) {
+  state.editAgent = a.id;
+  switchTab("agents");
+  $("agFormTitle").textContent = `Sửa worker: ${a.name}`;
+  $("agName").value = a.name;
+  $("agAdapter").value = a.adapter_type;
+  $("agAdapter").disabled = true; // a different adapter = remove and add a new worker
+  const { capabilities, ...rest } = a.config;
+  $("agConfig").value = JSON.stringify(rest, null, 2);
+  $("agSubmit").textContent = "Lưu";
+  $("agCancel").hidden = false;
+  $("agentError").hidden = true;
+  renderAgentForm(a);
+  $("agName").focus();
+}
+
+function resetAgentForm() {
+  state.editAgent = null;
+  $("agFormTitle").textContent = "Thêm worker";
+  $("agName").value = "";
+  $("agConfig").value = "{}";
+  $("agAdapter").disabled = false;
+  $("agSubmit").textContent = "Thêm";
+  $("agCancel").hidden = true;
+  renderAgentForm(null);
+}
+$("agCancel").onclick = resetAgentForm;
+
+async function removeAgent(a) {
+  if (!confirm(`Xoá worker “${a.name}” khỏi project? Lịch sử (task, tin nhắn) vẫn giữ.`)) return;
+  try {
+    await api("DELETE", P(`/agents/${a.id}`), {});
+    if (state.editAgent === a.id) resetAgentForm();
+    state.selectedAgent = null;
+    $("agentTabBtn").hidden = true;
+    switchTab("agents");
+    markDirty("agents");
+  } catch (e) {
+    alert(e.code === "agent_busy" ? "Worker đang chạy việc; đợi xong hoặc huỷ task rồi xoá." : e.message);
+  }
 }
 
 $("agentForm").onsubmit = async (ev) => {
@@ -811,14 +902,20 @@ $("agentForm").onsubmit = async (ev) => {
   $("agentError").hidden = true;
   try {
     const config = JSON.parse($("agConfig").value || "{}");
-    const caps = $("agCaps").value.split(",").map((s) => s.trim()).filter(Boolean);
-    if (caps.length) config.capabilities = caps;
-    await api("POST", P("/agents"), { name: $("agName").value.trim(), adapter_type: $("agAdapter").value, role: $("agRole").value, config });
-    $("agName").value = "";
+    if (adapterInfo()?.config_fields.some((f) => f.key === "capabilities")) {
+      const caps = [...$("agCaps").querySelectorAll("input:checked")].map((c) => c.value);
+      if (!caps.length) throw new Error("Chọn ít nhất một capability.");
+      config.capabilities = caps;
+    }
+    const name = $("agName").value.trim();
+    if (state.editAgent) await api("PATCH", P(`/agents/${state.editAgent}`), { name, config });
+    else await api("POST", P("/agents"), { name, adapter_type: $("agAdapter").value, role: "worker", config });
+    resetAgentForm();
     markDirty("agents");
   } catch (e) {
     $("agentError").hidden = false;
-    $("agentError").textContent = e instanceof SyntaxError ? "Config không phải JSON hợp lệ" : e.message;
+    $("agentError").textContent = e instanceof SyntaxError ? "Config không phải JSON hợp lệ"
+      : e.code === "agent_busy" ? "Worker đang chạy việc; sửa lại khi nó rảnh." : e.message;
   }
 };
 
@@ -838,6 +935,18 @@ function renderAgentDetail() {
   if (!a) return;
   host.append(el("h3", null, a.name), el("div", "po-muted", `${a.adapter_type} · ${a.provider} · ${a.role}${a.is_active_orchestrator ? " (điều phối hiện tại)" : ""}`));
   host.append(el("div", "po-muted", "Capabilities: " + a.capabilities.join(", ")));
+  if (!a.enabled) host.append(el("div", "po-muted", "Đã xoá khỏi project (chỉ còn lịch sử)."));
+  else if (a.role === "worker") {
+    const row = el("div", "po-row");
+    const edit = el("button", "po-btn", "Sửa");
+    edit.type = "button";
+    edit.onclick = () => startEditAgent(a);
+    const del = el("button", "po-btn", "Xoá");
+    del.type = "button";
+    del.onclick = () => removeAgent(a);
+    row.append(edit, del);
+    host.append(row);
+  }
 
   host.append(el("h4", null, "Đang làm"));
   if (!a.current_runs.length) host.append(el("p", "po-empty", "Không có run nào đang chạy."));
@@ -907,7 +1016,18 @@ async function start() {
   await loadProjects();
 }
 
+// Launcher hand-off (scripts/office-launch.py): #token=…&project=… — stored, then
+// removed from the address bar. A fragment never reaches the server or its logs.
+function takeHandoff() {
+  const h = new URLSearchParams(location.hash.slice(1));
+  if (!h.has("token") && !h.has("project")) return;
+  if (h.get("token")) localStorageSet("po.token", h.get("token"));
+  if (h.get("project")) localStorageSet("po.project", h.get("project"));
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
 (async () => {
+  takeHandoff();
   state.token = localStorageGet("po.token");
   if (!state.token) { $("login").hidden = false; return; }
   try { await start(); } catch { logout(); }
