@@ -46,6 +46,7 @@ class Server:
             "OFFICE_DATABASE_URL": f"sqlite+aiosqlite:///{self.db}",
             "OFFICE_DATA_DIR": str(root / "data"),
             "OFFICE_WEB_DIR": "",
+            "OFFICE_POLICY_FILE": "",  # built-in defaults
         }
         self.log = (root / "server.log").open("ab")
         self.proc: subprocess.Popen | None = None

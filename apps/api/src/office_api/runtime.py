@@ -34,7 +34,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from office_api import budget
+from office_api import budget, retention
 from office_api import orchestrator as orch
 from office_api.approvals import ApprovalMixin
 from office_api.config import Settings
@@ -100,6 +100,17 @@ class Runtime(ConversationMixin, InterventionMixin, ApprovalMixin):
     async def start(self) -> None:
         await self.recover()
         self._loop_task = asyncio.create_task(self._dispatch_loop())
+        if self.settings.policy.retention.enabled:
+            self._spawn(self._retention_loop())
+
+    async def _retention_loop(self) -> None:
+        while True:
+            try:
+                async with self.sessionmaker() as s:
+                    await retention.sweep(s, self.settings, self.store)
+            except Exception:
+                log.exception("retention sweep failed")
+            await asyncio.sleep(self.settings.policy.retention.sweep_interval_h * 3600)
 
     async def stop(self) -> None:
         # Runs interrupted here stay non-terminal in the DB; recover() handles them.
@@ -1178,6 +1189,7 @@ async def add_message(
     )
     s.add(message)
     await s.flush()
+    conv = await s.get(Conversation, conversation_id)
     await append_event(
         s,
         project_id=project_id,
@@ -1191,6 +1203,8 @@ async def add_message(
             "recipient_ids": recipient_ids or [],
             "content_ref": message.content_ref,
             "preview": preview(text),
+            # Readers outside transcripts.private_readers get it without content.
+            "private": conv.visibility == "participants",
         },
     )
     return message

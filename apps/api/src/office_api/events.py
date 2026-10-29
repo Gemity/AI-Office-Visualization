@@ -103,6 +103,15 @@ async def fetch_events(
     return [to_contract(r) for r in rows]
 
 
+def redact(event: Event, can_read_private: bool) -> Event:
+    """Strips the content of private DM messages for readers the transcript
+    policy excludes; the event itself (who wrote to whom, when) stays visible."""
+    if can_read_private or not event.payload.get("private"):
+        return event
+    payload = {k: v for k, v in event.payload.items() if k not in {"preview", "content_ref"}}
+    return event.model_copy(update={"payload": payload})
+
+
 class Subscription:
     def __init__(self, project_id: str, maxsize: int):
         self.project_id = project_id

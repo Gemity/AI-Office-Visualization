@@ -12,12 +12,12 @@ WebSocket protocol:
 import asyncio
 from typing import Annotated
 
-from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, Request, WebSocket, WebSocketDisconnect
 from office_contracts import Event, EventType
 from pydantic import BaseModel
 
 from office_api.auth import Membership, Session, authenticate, find_membership
-from office_api.events import fetch_events
+from office_api.events import fetch_events, redact
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["events"])
 
@@ -32,6 +32,7 @@ class EventPage(BaseModel):
 @router.get("/events", response_model=EventPage)
 async def list_events(
     project_id: str,
+    request: Request,
     member: Membership,
     session: Session,
     after_seq: Annotated[int, Query(ge=0)] = 0,
@@ -52,7 +53,11 @@ async def list_events(
         actor_id=actor_id,
         conversation_id=conversation_id,
     )
-    return EventPage(events=events, next_after_seq=events[-1].sequence if events else after_seq)
+    can_read = request.app.state.runtime.settings.policy.can_read_private(member.role)
+    return EventPage(
+        events=[redact(e, can_read) for e in events],
+        next_after_seq=events[-1].sequence if events else after_seq,
+    )
 
 
 @router.websocket("/stream")
@@ -69,9 +74,11 @@ async def stream(
         if principal is None:
             await websocket.close(code=4401, reason="unauthenticated")
             return
-        if await find_membership(session, project_id, principal.id) is None:
+        member = await find_membership(session, project_id, principal.id)
+        if member is None:
             await websocket.close(code=4404, reason="project_not_found")
             return
+    can_read = websocket.app.state.runtime.settings.policy.can_read_private(member.role)
 
     broker = websocket.app.state.broker
     # Subscribe before replaying so nothing committed in between is missed;
@@ -79,7 +86,7 @@ async def stream(
     sub = broker.subscribe(project_id)
     receiver = asyncio.create_task(_wait_for_disconnect(websocket))
     try:
-        last = await _send_from_db(websocket, sessionmaker, project_id, after_seq)
+        last = await _send_from_db(websocket, sessionmaker, project_id, after_seq, can_read)
         while True:
             getter = asyncio.create_task(sub.queue.get())
             done, _ = await asyncio.wait({getter, receiver}, return_when=asyncio.FIRST_COMPLETED)
@@ -94,10 +101,10 @@ async def stream(
                 continue
             if event.sequence > last + 1:
                 # Publishes can arrive out of order; the gap is already committed.
-                last = await _send_from_db(websocket, sessionmaker, project_id, last)
+                last = await _send_from_db(websocket, sessionmaker, project_id, last, can_read)
                 if event.sequence <= last:
                     continue
-            await websocket.send_json(event.model_dump(mode="json"))
+            await websocket.send_json(redact(event, can_read).model_dump(mode="json"))
             last = event.sequence
     except WebSocketDisconnect:
         return
@@ -106,13 +113,15 @@ async def stream(
         broker.unsubscribe(sub)
 
 
-async def _send_from_db(websocket: WebSocket, sessionmaker, project_id: str, after: int) -> int:
+async def _send_from_db(
+    websocket: WebSocket, sessionmaker, project_id: str, after: int, can_read: bool
+) -> int:
     last = after
     while True:
         async with sessionmaker() as session:
             events = await fetch_events(session, project_id, last, REPLAY_BATCH)
         for event in events:
-            await websocket.send_json(event.model_dump(mode="json"))
+            await websocket.send_json(redact(event, can_read).model_dump(mode="json"))
             last = event.sequence
         if len(events) < REPLAY_BATCH:
             return last

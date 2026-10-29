@@ -1115,7 +1115,7 @@
           "interventions"
         ],
         "summary": "Create Intervention",
-        "description": "Pause/resume/cancel/redirect a task or the whole project (\u00a78.3).\n\n``status`` stays ``requested`` until the runtime observes the effect; watch\nfor ``intervention.applied`` (BR-06, AC-06).",
+        "description": "Pause/resume/cancel/redirect a task or the whole project (\u00a78.3).\n\n``status`` stays ``requested`` until the runtime observes the effect; watch\nfor ``intervention.applied`` (BR-06, AC-06). Owners may always intervene;\nobservers only for the actions in ``interventions.observer_actions``.",
         "operationId": "create_intervention_projects__project_id__interventions_post",
         "parameters": [
           {
@@ -2746,7 +2746,8 @@
             "title": "Config"
           },
           "budget": {
-            "$ref": "#/components/schemas/ProjectBudget"
+            "$ref": "#/components/schemas/ProjectBudget",
+            "description": "Omitted \u2192 the server's default budget policy (office-policy.toml)."
           }
         },
         "type": "object",

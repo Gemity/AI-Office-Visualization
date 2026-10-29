@@ -9,4 +9,4 @@ Environment=OFFICE_DATABASE_URL=sqlite+aiosqlite:///%h/.local/share/ai-project-o
 Environment=OFFICE_DATA_DIR=%h/.local/share/ai-project-office/data
 EnvironmentFile=-%h/.config/ai-project-office/env
 UMask=0077
-ExecStart=%h/.local/bin/uv run --frozen office-api backup --keep 14
+ExecStart=%h/.local/bin/uv run --frozen office-api backup

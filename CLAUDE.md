@@ -20,7 +20,8 @@ Dự án dùng cá nhân, phi thương mại.
 **Phase 2 xong** (ADR-0004): meeting/DM là task (`kind meeting|dm`, hub có moderator, biên bản, decision, action item), interventions (pause/resume/cancel/redirect, `requested → applied|rejected`), lọc timeline. UI mới `apps/web/index.html` + `po-app.js` là projection từ REST + WebSocket trên renderer Pixel Office (`observeOnly`).
 **Phase 3 xong** (ADR-0005): adapter async job (`AsyncJobAdapter`, mock `mock-suno`/`mock-tripo`), approval gate cho hành động rủi ro cao (BR-07), artifact viewer/content an toàn, metrics chi phí.
 **Phase 4 xong** (ADR-0006): sandbox bubblewrap mặc định cho adapter CLI, gắn lại job async sau restart, ngân sách + circuit breaker, Alembic, log redaction + security headers, backup/healthcheck, deploy local (systemd `--user`, `docs/deploy-local.md`), e2e AC-01…AC-10 + NFR trong `tests/e2e/`.
-Chưa làm: Postgres (chưa kiểm chứng), secret vault, các policy mặc định còn mở ở §18.
+**Chốt §18** (ADR-0007): giữ runtime tự viết, deploy local-first, policy mặc định do Owner cấu hình trong `office-policy.toml` (transcript DM riêng, retention, ngân sách mặc định, quyền can thiệp của observer, TTL approval).
+Chưa làm: Postgres (chưa kiểm chứng), secret vault, API/quota thật của Suno/Tripo.
 
 ## Lệnh
 
@@ -36,10 +37,12 @@ uv run office-api create-owner --name "Tên"   # tạo principal, in token (ch�
 uv run office-api serve --port 8000           # chạy API + UI tại http://127.0.0.1:8000/ (tự migrate khi khởi động)
                                               # env: OFFICE_DATABASE_URL (mặc định sqlite ./office.db), OFFICE_WEB_DIR (mặc định apps/web, rỗng = tắt),
                                               #      OFFICE_DATA_DIR (mặc định ./data: content store + workspace của agent),
-                                              #      OFFICE_SANDBOX (bwrap mặc định | none)
+                                              #      OFFICE_SANDBOX (bwrap mặc định | none),
+                                              #      OFFICE_POLICY_FILE (mặc định ./office-policy.toml; đọc khi khởi động)
 uv run office-api migrate                     # nâng DB lên schema mới nhất
 uv run office-api makemigration -m "..."      # sinh migration Alembic khi đổi models.py (bắt buộc)
-uv run office-api backup --keep 10            # snapshot SQLite + data dir vào <data>/backups
+uv run office-api backup [--keep N]           # snapshot SQLite + data dir vào <data>/backups (mặc định retention.backups_keep)
+uv run office-api prune [--dry-run]           # áp dụng [retention] của office-policy.toml ngay
 uv run pytest tests/e2e                       # e2e: chạy server thật trong tiến trình riêng (chậm hơn)
 ```
 
@@ -67,6 +70,8 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
   - `runtime.py` — `Runtime(ConversationMixin, InterventionMixin, ApprovalMixin)`: dispatcher, chạy run, retry/backoff, block lan truyền, kết thúc plan → lượt Orchestrator tổng hợp, `recover()` khi khởi động (nối lại run có `provider_ref`). Dispatcher kiểm ngân sách: project vượt trần ⇒ can thiệp pause `requested_by=system`. Mọi chuyển trạng thái đi kèm event trong cùng transaction.
   - `orchestrator.py` — prompt + schema `OrchestratorOutput` (structured output) + `validate_plan`.
   - `storage.py` — content store `obj://` (nội dung tin nhắn/kết quả), đường dẫn workspace, `sandbox_policy()` (ẩn data dir/DB/secret trong home).
+  - `policy.py` — `Policy` nạp từ `office-policy.toml` (`Settings.policy`); khóa lạ ⇒ không khởi động. Test dùng `Policy()`, không đọc file của Owner.
+  - `retention.py` — dọn content object/workspace cũ của project rảnh theo `[retention]`; không xóa event/audit/DB row.
   - `budget.py` — `ProjectBudget` (`projects.budget`), chi tiêu từ `agent_runs.cost`; `PUT /projects/{id}/budget`.
   - `migrations/` — Alembic (`upgrade()` gọi khi khởi động và bởi `office-api migrate`).
   - `logs.py` — che token trong log uvicorn; `cli.py` — `create-owner`, `serve`, `migrate`, `makemigration`, `backup`.
@@ -82,12 +87,11 @@ Adapter thật cần CLI đã đăng nhập trên máy: `claude` (Claude Agent S
 - **UI base: fork Pixel Office** (https://github.com/basriayaz/pixel-office, MIT) vào `apps/web/` + `packages/office-renderer/`. Giữ `LICENSE`/copyright của upstream và ghi upstream + commit gốc trong `apps/web/UPSTREAM.md`. Upstream theo mô hình "thuê nhân viên", chưa có project scoping hay một Orchestrator duy nhất — khi fork phải sửa theo BR-01/02/04, không mang mô hình đó sang.
 - **Chỉ fork frontend** (`web/` upstream → `apps/web/`, đã copy nguyên trạng, commit `4ebfdc7`). **Backend là FastAPI** trong `apps/api/`, viết mới — không dùng server Node/Express của upstream. Frontend hiện còn gọi `/api/*` của upstream, cần chuyển sang API spec §11. Ghi mọi thay đổi so với upstream vào `apps/web/UPSTREAM.md`.
 
-Các quyết định còn mở (spec §18) — **không tự chốt**, hỏi Owner hoặc ghi ADR trong `docs/adr/`:
-- Runtime: LangGraph + durable execution hay workflow engine chuyên dụng.
-- Tích hợp Claude/Codex qua SDK/API hay CLI.
+Đã chốt §18 (ADR-0007): runtime tự viết (không LangGraph/workflow engine), deploy local-first, policy mặc định qua `office-policy.toml`.
+
+Còn mở — **không tự chốt**, hỏi Owner hoặc ghi ADR trong `docs/adr/`:
+- Tích hợp Claude/Codex qua SDK/API hay CLI (hiện: Claude Agent SDK + Codex CLI).
 - API/quota chính thức của Suno/Tripo (dùng mock cho tới khi xác minh).
-- Policy mặc định: transcript riêng, retention, ngân sách, quyền can thiệp.
-- Deploy local-first, server 24/7 hay hybrid.
 
 ## Cấu trúc repo đề xuất (spec §17)
 

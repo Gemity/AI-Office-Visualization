@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 from office_api.config import Settings
 from office_api.main import create_app
+from office_api.policy import Policy
 
 
 def test_serves_frontend_without_shadowing_api(client):
@@ -20,6 +21,7 @@ def test_frontend_can_be_disabled(tmp_path):
             database_url=f"sqlite+aiosqlite:///{tmp_path}/t.db",
             web_dir="",
             data_dir=str(tmp_path / "data"),
+            policy=Policy(),
         )
     )
     with TestClient(app) as c:

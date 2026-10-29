@@ -4,7 +4,8 @@ office-api create-owner --name "Quy"   # prints a bearer token once
 office-api serve [--host 127.0.0.1] [--port 8000]
 office-api migrate                      # upgrade the database to the latest schema
 office-api makemigration -m "message"  # new Alembic revision from models.py changes
-office-api backup [--keep 10]           # snapshot DB + data dir into <data>/backups
+office-api backup [--keep N]            # snapshot DB + data dir into <data>/backups
+office-api prune [--dry-run]            # apply the [retention] policy now
 """
 
 import argparse
@@ -22,6 +23,7 @@ from office_api.auth import create_principal_with_token
 from office_api.config import Settings
 from office_api.db import create_engine, create_sessionmaker
 from office_api.logs import log_config
+from office_api.storage import ContentStore
 
 
 async def migrate(url: str) -> None:
@@ -55,6 +57,27 @@ async def _make_migration(message: str) -> None:
                 lambda c: command.revision(migrations.config(c), message=message, autogenerate=True)
             )
         await engine.dispose()
+
+
+async def _prune(dry_run: bool) -> None:
+    from office_api import retention
+
+    settings = Settings()
+    if not settings.policy.retention.enabled:
+        print("retention is off (content_days = workspace_days = 0 in the policy file)")
+        return
+    await migrate(settings.database_url)
+    engine = create_engine(settings.database_url)
+    async with create_sessionmaker(engine)() as session:
+        pruned = await retention.sweep(
+            session, settings, ContentStore(settings.data_dir), dry_run=dry_run
+        )
+    await engine.dispose()
+    verb = "would delete" if dry_run else "deleted"
+    for p in pruned:
+        print(f"{p.project_id}: {verb} {len(p.objects)} objects, {len(p.workspaces)} workspaces")
+    if not pruned:
+        print("nothing to prune")
 
 
 def backup(settings: Settings, keep: int) -> Path:
@@ -99,7 +122,11 @@ def main() -> None:
     mk = sub.add_parser("makemigration", help="generate a migration from model changes")
     mk.add_argument("-m", "--message", required=True)
     bk = sub.add_parser("backup", help="snapshot the database and data directory")
-    bk.add_argument("--keep", type=int, default=10, help="backups to keep (default 10)")
+    bk.add_argument(
+        "--keep", type=int, help="backups to keep (default: retention.backups_keep in the policy)"
+    )
+    pr = sub.add_parser("prune", help="apply the retention policy now")
+    pr.add_argument("--dry-run", action="store_true", help="only list what would be deleted")
     args = parser.parse_args()
 
     if args.cmd == "create-owner":
@@ -110,7 +137,10 @@ def main() -> None:
     elif args.cmd == "makemigration":
         asyncio.run(_make_migration(args.message))
     elif args.cmd == "backup":
-        print(backup(Settings(), args.keep))
+        settings = Settings()
+        print(backup(settings, args.keep or settings.policy.retention.backups_keep))
+    elif args.cmd == "prune":
+        asyncio.run(_prune(args.dry_run))
     elif args.cmd == "serve":
         import uvicorn
 

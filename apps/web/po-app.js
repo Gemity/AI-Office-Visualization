@@ -705,7 +705,11 @@ async function loadTalk(convId) {
   state.talk = convId;
   const c = state.convs.find((x) => x.id === convId);
   const view = $("talkView");
-  const msgs = await api("GET", P(`/conversations/${convId}/messages`));
+  let msgs, hidden = false;
+  try { msgs = await api("GET", P(`/conversations/${convId}/messages`)); } catch (e) {
+    if (e.code !== "transcript_private") throw e;
+    msgs = []; hidden = true;
+  }
   if (state.talk !== convId) return;
   view.replaceChildren();
   const meeting = state.meetings.find((m) => m.conversation_id === convId);
@@ -714,12 +718,12 @@ async function loadTalk(convId) {
     view.append(el("div", "po-muted", "Chương trình:"), el("pre", "po-pre", meeting.agenda));
     if (meeting.decisions.length) { view.append(el("div", "po-muted", "Quyết định:")); for (const d of meeting.decisions) view.append(el("div", null, "✔ " + d)); }
   } else if (c) view.append(el("h4", null, c.type === "dm" ? `${KIND_ICON.dm} DM: ${c.participants.map(nameOf).join(" ↔ ")}` : `${KIND_ICON.work} Task thread`));
-  if (c?.visibility === "participants") view.append(el("div", "po-muted", "Riêng tư giữa các bên tham gia; Owner xem với quyền audit."));
+  if (c?.visibility === "participants") view.append(el("div", "po-muted", hidden ? "Transcript riêng tư: vai trò của bạn không được đọc (policy transcripts)." : "Riêng tư giữa các bên tham gia; bạn xem với quyền audit."));
   const log = el("div", "po-log");
-  if (!msgs.length) log.append(el("p", "po-empty", "Chưa có tin nhắn."));
+  if (!msgs.length && !hidden) log.append(el("p", "po-empty", "Chưa có tin nhắn."));
   for (const m of msgs) {
     const box = el("div", "po-msg");
-    box.append(el("span", "who", `${nameOf(m.sender_id)} · ${fmtTime(m.created_at)}`), document.createTextNode(m.content ?? ""));
+    box.append(el("span", "who", `${nameOf(m.sender_id)} · ${fmtTime(m.created_at)}`), document.createTextNode(m.content ?? "(nội dung đã hết hạn lưu trữ)"));
     log.append(box);
   }
   view.append(log);

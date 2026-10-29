@@ -92,7 +92,8 @@ class ApprovalMixin:
             await self._settle(s, a, "cancelled", None, "scope changed or approval expired")
 
         project = await s.get(Project, task.project_id)
-        ttl = float((project.config or {}).get("approval_ttl_s", self.settings.approval_ttl_s))
+        default_ttl = self.settings.policy.approvals.ttl_s
+        ttl = float((project.config or {}).get("approval_ttl_s", default_ttl))
         scope = ApprovalScope(
             **wanted,
             summary=f"{agent.name} sẽ thực hiện {', '.join(actions)} cho task “{task.title}”: "

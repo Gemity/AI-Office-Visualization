@@ -24,15 +24,19 @@ class ContentStore:
         (self.root / f"{object_id}.txt").write_text(text, encoding="utf-8")
         return PREFIX + object_id
 
-    def get_text(self, ref: str | None) -> str | None:
-        if not ref:
-            return None
+    def path(self, ref: str) -> Path:
         if not ref.startswith(PREFIX):
             raise ValueError(f"unsupported content_ref {ref!r}")
         object_id = ref.removeprefix(PREFIX)
         if not object_id.replace("_", "").isalnum():
             raise ValueError(f"invalid content_ref {ref!r}")
-        path = self.root / f"{object_id}.txt"
+        return self.root / f"{object_id}.txt"
+
+    def get_text(self, ref: str | None) -> str | None:
+        """None when there is no ref or its content was deleted (retention)."""
+        if not ref:
+            return None
+        path = self.path(ref)
         return path.read_text(encoding="utf-8") if path.exists() else None
 
 

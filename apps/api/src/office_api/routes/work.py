@@ -204,6 +204,9 @@ async def list_messages(
     conv = await session.get(Conversation, conversation_id)
     if conv is None or conv.project_id != project_id:
         raise ApiError(404, "conversation_not_found", "Conversation not found")
+    policy = request.app.state.runtime.settings.policy
+    if conv.visibility == "participants" and not policy.can_read_private(member.role):
+        raise ApiError(403, "transcript_private", "Private transcript (transcripts policy)")
     msgs = (
         await session.scalars(
             select(Message)

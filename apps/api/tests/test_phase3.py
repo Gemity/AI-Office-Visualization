@@ -12,6 +12,7 @@ from conftest import run
 from fastapi.testclient import TestClient
 from office_api.main import create_app
 from office_api.models import ProjectMember
+from office_api.policy import Policy
 from test_phase1 import DONE, Office, key, plan, task, wait_until
 
 JOB = {"duration_s": 0.3, "poll_s": 0.05}
@@ -218,7 +219,8 @@ def test_worker_permission_requires_approval_even_if_plan_omits_it(office):
 
 
 def test_approval_expires_and_blocks_task(settings):
-    with TestClient(create_app(dataclasses.replace(settings, approval_ttl_s=0.3))) as client:
+    short_ttl = dataclasses.replace(settings, policy=Policy(approvals={"ttl_s": 0.3}))
+    with TestClient(create_app(short_ttl)) as client:
         # Own app (short TTL); the default client fixture would start a second runtime.
         from office_api.auth import create_principal_with_token
 

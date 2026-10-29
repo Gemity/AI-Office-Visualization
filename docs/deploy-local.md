@@ -17,6 +17,7 @@ Mô hình (ADR-0006): một máy, một Owner, SQLite, chạy nền bằng syste
 | `OFFICE_DATA_DIR` | `./data` | Content store, workspace của agent, backup |
 | `OFFICE_WEB_DIR` | `apps/web` | Thư mục UI; rỗng = chỉ API |
 | `OFFICE_SANDBOX` | `bwrap` | `bwrap` hoặc `none` |
+| `OFFICE_POLICY_FILE` | `./office-policy.toml` | File policy mặc định (xem dưới) |
 
 Không để token hay secret trong các biến này.
 
@@ -60,7 +61,7 @@ curl -fsS http://127.0.0.1:8000/readyz    # DB trả lời + dispatcher đang ch
 ## Backup / khôi phục
 
 ```bash
-uv run office-api backup --keep 14   # timer mẫu chạy hằng ngày
+uv run office-api backup   # timer mẫu chạy hằng ngày; số bản giữ lại = retention.backups_keep trong office-policy.toml
 ```
 
 Tạo `$OFFICE_DATA_DIR/backups/office-YYYYmmdd-HHMMSS.tar.gz` (quyền 600), gồm `office.db` (snapshot nhất quán) và `data/` (content store, workspace). Nên chép bản backup ra ổ khác.
@@ -79,9 +80,21 @@ systemctl --user start ai-project-office              # tự migrate lên schema
 
 Giữ `--host 127.0.0.1`. Trình duyệt gửi token qua query `?token=` của WebSocket, và server chưa có TLS. Muốn truy cập từ máy khác thì đi qua SSH tunnel (`ssh -L 8000:127.0.0.1:8000 máy-chủ`), đừng mở port.
 
+## Policy mặc định (`office-policy.toml`)
+
+File ở gốc repo, có chú thích từng khóa (ADR-0007):
+- transcript DM riêng ai được đọc;
+- retention: số ngày giữ nội dung/workspace, số bản backup;
+- ngân sách mặc định cho project mới;
+- hành động can thiệp observer được gửi;
+- TTL approval.
+
+Server chỉ đọc file khi khởi động: sửa xong chạy `systemctl --user restart ai-project-office`. File sai khóa/giá trị ⇒ service không lên, xem lỗi bằng `journalctl --user -u ai-project-office`.
+Xem trước retention sẽ xóa gì: `uv run office-api prune --dry-run`.
+
 ## Ngân sách
 
-Mặc định không giới hạn. Đặt trần trong tab **Chi phí** của UI hoặc qua API:
+Mặc định không giới hạn (đổi cho project mới bằng `[budget] default_max_cost_usd`). Đặt trần trong tab **Chi phí** của UI hoặc qua API:
 
 ```bash
 curl -X PUT http://127.0.0.1:8000/projects/<id>/budget \

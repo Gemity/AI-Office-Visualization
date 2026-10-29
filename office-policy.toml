@@ -1,0 +1,38 @@
+# Policy mặc định của AI Project Office (spec §13, §18 — ADR-0007).
+#
+# Server đọc file này MỘT LẦN khi khởi động: sửa xong phải restart
+#   systemctl --user restart ai-project-office   (hoặc chạy lại `office-api serve`)
+# Đường dẫn: biến môi trường OFFICE_POLICY_FILE (mặc định ./office-policy.toml ở thư mục chạy server).
+# Thiếu file ⇒ dùng giá trị mặc định dưới đây. Sai khóa / sai giá trị ⇒ server từ chối khởi động.
+# Giá trị đang ghi ở đây = mặc định có sẵn trong code.
+
+[transcripts]
+# Vai trò nào được đọc nội dung DM riêng giữa các agent (visibility = participants).
+# "owner" = Owner xem với quyền audit; thêm "observer" để observer cũng đọc được; [] = không ai đọc.
+# Người không được đọc vẫn thấy có DM (ai gửi ai, lúc nào) nhưng không thấy nội dung.
+# Meeting nhóm luôn hiển thị cho mọi thành viên project.
+private_readers = ["owner"]
+
+[retention]
+# Số ngày giữ dữ liệu; 0 = giữ mãi. Chỉ áp dụng cho project đang rảnh
+# (không còn task chưa xong, không có run đang chạy).
+# Event, audit log và các dòng DB KHÔNG bao giờ bị xóa — chỉ xóa nội dung.
+content_days = 0      # nội dung tin nhắn, kết quả task, biên bản họp, output của run
+workspace_days = 0    # thư mục làm việc của task (file agent tạo, nội dung artifact)
+sweep_interval_h = 6  # chu kỳ server tự dọn (giờ); dọn tay: `office-api prune [--dry-run]`
+backups_keep = 14     # số bản `office-api backup` được giữ (cờ --keep ghi đè)
+
+[budget]
+# Trần chi phí (USD) gán cho project MỚI tạo mà không ghi ngân sách riêng.
+# Bỏ trống = không giới hạn. Project đã có thì sửa trong tab "Chi phí" (PUT /projects/{id}/budget).
+# default_max_cost_usd = 5.0
+
+[interventions]
+# Owner luôn được pause/resume/cancel/redirect. Đây là các hành động observer cũng được gửi.
+# Ví dụ: observer_actions = ["pause"]
+observer_actions = []
+
+[approvals]
+# Thời hạn (giây) để Owner duyệt hành động rủi ro cao (BR-07) và để runtime dùng approval đó.
+# Từng project vẫn ghi đè được bằng config["approval_ttl_s"].
+ttl_s = 3600

@@ -21,7 +21,10 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     config: dict[str, Any] = Field(default_factory=dict)
-    budget: ProjectBudget = Field(default_factory=ProjectBudget)
+    budget: ProjectBudget = Field(
+        default_factory=ProjectBudget,
+        description="Omitted → the server's default budget policy (office-policy.toml).",
+    )
 
 
 class ProjectOut(BaseModel):
@@ -57,11 +60,15 @@ async def create_project(
     idempotency_key: Annotated[str, Header(min_length=1, max_length=200)],
 ):
     async def handler() -> ProjectOut:
+        budget = body.budget
+        if "budget" not in body.model_fields_set:
+            default = request.app.state.runtime.settings.policy.budget
+            budget = ProjectBudget(max_cost_usd=default.default_max_cost_usd)
         project = Project(
             id=new_id("prj"),
             name=body.name,
             config=body.config,
-            budget=body.budget.model_dump(),
+            budget=budget.model_dump(),
             created_by=principal.id,
         )
         session.add(project)

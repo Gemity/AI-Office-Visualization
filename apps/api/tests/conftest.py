@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from office_api.auth import create_principal_with_token
 from office_api.config import Settings
 from office_api.main import create_app
+from office_api.policy import Policy
 
 _keys = itertools.count()
 
@@ -16,6 +17,7 @@ def settings(tmp_path) -> Settings:
         data_dir=str(tmp_path / "data"),
         retry_backoff_s=0.05,
         dispatch_interval_s=0.05,
+        policy=Policy(),  # built-in defaults, not the Owner's office-policy.toml
     )
 
 

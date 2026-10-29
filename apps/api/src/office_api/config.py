@@ -2,6 +2,8 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from office_api.policy import Policy, load_policy
+
 # apps/api/src/office_api/config.py -> apps/web
 _DEFAULT_WEB_DIR = Path(__file__).resolve().parents[3] / "web"
 
@@ -29,11 +31,16 @@ class Settings:
     retry_backoff_s: float = 5.0  # delay before attempt n+1 = backoff * 2**(n-1)
     max_turn_attempts: int = 3  # orchestrator turns
     conversation_time_limit_s: float = 900  # whole meeting / dm
-    # How long the Owner has to decide on (and the runtime to use) an approval;
-    # a project can override it with config["approval_ttl_s"].
-    approval_ttl_s: float = 3600
     # OS sandbox for adapters that run local CLIs: "bwrap" (default) or "none" (ADR-0006).
     sandbox: str = field(default_factory=lambda: os.environ.get("OFFICE_SANDBOX", "bwrap"))
+
+    # Owner-editable default policies (transcripts, retention, budget, interventions,
+    # approvals), see office_api/policy.py and ADR-0007.
+    policy: Policy = field(
+        default_factory=lambda: load_policy(
+            os.environ.get("OFFICE_POLICY_FILE", "./office-policy.toml")
+        )
+    )
 
     def __post_init__(self):
         if self.sandbox not in {"bwrap", "none"}:
