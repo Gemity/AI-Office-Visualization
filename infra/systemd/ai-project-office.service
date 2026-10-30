@@ -1,6 +1,7 @@
 # AI Project Office — local-first, one user (ADR-0006). Template: not installed
 # automatically; see docs/deploy-local.md. Assumes the repo at
-# ~/UnityProject/AI-Office-Visualization — adjust WorkingDirectory otherwise.
+# ~/UnityProject/AI-Office-Visualization — adjust WorkingDirectory otherwise
+# (convention: the office repo sits next to the target repos, docs/deploy-local.md).
 #
 #   cp infra/systemd/ai-project-office*.{service,timer} ~/.config/systemd/user/
 #   systemctl --user daemon-reload

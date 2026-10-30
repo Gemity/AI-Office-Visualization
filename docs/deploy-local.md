@@ -37,7 +37,7 @@ DB tạo bằng phiên bản trước Phase 4 (`create_all`) sẽ bị từ ch�
 ## Launcher bấm-là-chạy (`scripts/office-launch.py`)
 
 Chỉ cần mang **một file**. Chép vào repo muốn làm việc (`<repo>/.claude/office-launch.py`, `.agents/` hoặc gốc repo) rồi `chmod +x`. Cấu hình nằm ở khối **CẤU HÌNH** đầu file:
-- `OFFICE_HOME`: nơi cài AI Project Office;
+- `OFFICE_HOME`: nơi cài AI Project Office. Để trống (mặc định) thì dùng quy tắc đặt chung bên dưới;
 - `PORT`;
 - `ORCHESTRATOR`: tên, adapter, config (model, effort, system_prompt…).
 
@@ -52,11 +52,26 @@ Mỗi lần double-click hoặc chạy `./office-launch.py`:
 
 Tùy chọn: `--stop` dừng server; `--no-browser` chỉ in URL.
 
+### Quy tắc đặt thư mục (dùng chung trên nhiều máy)
+
+Clone `AI-Office-Visualization` **cùng cấp** với các repo làm việc, tức là cùng thư mục cha:
+
+```
+~/UnityProject/
+├── AI-Office-Visualization/     # server (git clone, đúng tên này)
+├── lib-factory/.claude/office-launch.py
+└── repo-khac/.agents/office-launch.py
+```
+
+Launcher tìm server theo thứ tự: `OFFICE_HOME` ở đầu file → biến môi trường `OFFICE_HOME` → `<thư mục cha của repo>/AI-Office-Visualization`. Nhờ vậy cùng một file launcher (commit vào repo target) chạy được trên mọi máy theo quy tắc này, không phải sửa. Máy nào đặt khác thì đặt `OFFICE_HOME` trong môi trường của máy đó.
+
+Mỗi máy có server, DB, Owner và token **riêng** (`~/.local/share/ai-project-office/`, `~/.config/ai-project-office/token`). Lịch sử chat và worker không đồng bộ giữa các máy.
+
 GNOME/Nautilus mặc định mở file `.py` bằng trình soạn thảo. Muốn double-click là chạy: Files → Preferences → "Executable Text Files" → **Run** (hoặc **Ask**).
 
 ## Chạy nền bằng systemd --user
 
-Mẫu nằm trong `infra/systemd/` và giả định repo ở `~/UnityProject/AI-Office-Visualization`. Nếu khác, sửa `WorkingDirectory`.
+Mẫu nằm trong `infra/systemd/` và giả định repo ở `~/UnityProject/AI-Office-Visualization`. Nếu máy này đặt khác (theo quy tắc cùng cấp ở trên), sửa `WorkingDirectory` sau khi chép unit.
 
 ```bash
 cp infra/systemd/ai-project-office.service \

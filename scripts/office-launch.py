@@ -16,7 +16,9 @@ Tùy chọn: `--stop` dừng server, `--no-browser` chỉ in URL. Python ≥ 3.1
 # Sửa trực tiếp ở đây. Lần chạy sau sẽ áp dụng.
 
 # Nơi cài AI Project Office (repo chứa pyproject.toml) và cổng server.
-OFFICE_HOME = "~/UnityProject/AI-Office-Visualization"
+# Để trống = tự tìm theo quy tắc đặt chung cho mọi máy: biến môi trường OFFICE_HOME,
+# rồi thư mục `AI-Office-Visualization` cùng cấp với repo này (cùng thư mục cha).
+OFFICE_HOME = ""
 PORT = 8000
 
 # Điều phối viên của project này. Owner chỉ chat với agent này.
@@ -51,7 +53,7 @@ import uuid  # noqa: E402
 import webbrowser  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-HOME_DIR = Path(OFFICE_HOME).expanduser()
+OFFICE_DIRNAME = "AI-Office-Visualization"
 BASE = f"http://127.0.0.1:{PORT}"
 # Same locations as infra/systemd/ai-project-office.service.
 SHARE = Path.home() / ".local/share/ai-project-office"
@@ -133,11 +135,27 @@ def ready() -> bool:
     return True
 
 
+def office_home() -> Path:
+    """OFFICE_HOME in this file → $OFFICE_HOME → sibling of the target repo."""
+    configured = OFFICE_HOME or os.environ.get("OFFICE_HOME", "")
+    if configured:
+        candidates = [Path(configured).expanduser()]
+    else:
+        repo = find_repo()
+        candidates = [repo.parent / OFFICE_DIRNAME, repo]  # repo: launcher run in place
+    for c in candidates:
+        if (c / "pyproject.toml").is_file() and (c / "apps/api").is_dir():
+            return c
+    raise LaunchError(
+        f"Không thấy AI Project Office ở {candidates[0]}. Clone repo {OFFICE_DIRNAME} "
+        "cùng cấp với repo này, hoặc đặt OFFICE_HOME ở đầu file."
+    )
+
+
 def start_server() -> None:
     if ready():
         return
-    if not (HOME_DIR / "pyproject.toml").is_file():
-        raise LaunchError(f"Không thấy AI Project Office ở {HOME_DIR}. Sửa OFFICE_HOME ở đầu file.")
+    home = office_home()
     SHARE.mkdir(parents=True, exist_ok=True)
     if UNIT.is_file():
         notify("Đang khởi động service ai-project-office…")
@@ -147,7 +165,7 @@ def start_server() -> None:
         log = open(LOG_FILE, "ab")
         proc = subprocess.Popen(
             [uv(), "run", "office-api", "serve", "--host", "127.0.0.1", "--port", str(PORT)],
-            cwd=HOME_DIR,  # office-policy.toml is read from here
+            cwd=home,  # office-policy.toml is read from here
             env=server_env(),
             stdin=subprocess.DEVNULL,
             stdout=log,
@@ -222,7 +240,7 @@ def get_token() -> str:
     if not has_principals():
         out = subprocess.run(
             [uv(), "run", "office-api", "create-owner", "--name", os.environ.get("USER", "owner")],
-            cwd=HOME_DIR,
+            cwd=office_home(),
             env=server_env(),
             capture_output=True,
             text=True,

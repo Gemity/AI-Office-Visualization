@@ -49,3 +49,9 @@
 
 - Project tạo bằng nút "+ Project" trên UI chưa có Điều phối cho tới khi được mở bằng launcher.
 - Agent vẫn làm việc trong workspace riêng của Office. Repo target mới chỉ được ghi lại (`repo_path`), agent chưa đọc hay ghi trực tiếp vào đó.
+
+## Bổ sung (2026-10-30): quy tắc đặt thư mục cho nhiều máy
+
+- Owner dùng project trên nhiều máy, mỗi máy một server riêng. Quy tắc: clone `AI-Office-Visualization` **cùng cấp** với repo target (cùng thư mục cha).
+- `OFFICE_HOME` trong launcher mặc định để trống. Thứ tự tìm: giá trị trong file → biến môi trường `OFFICE_HOME` → `<cha của repo>/AI-Office-Visualization` → chính repo chứa launcher (chạy tại chỗ). Launcher commit vào repo target chạy được trên mọi máy theo quy tắc, không cần sửa.
+- Dữ liệu (DB, content store, token Owner) vẫn theo từng máy, không đồng bộ. Dùng chung dữ liệu giữa các máy cần một server trung tâm. Việc đó chưa làm vì server chỉ bind loopback (ADR-0006).
